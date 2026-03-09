@@ -31,3 +31,6 @@ dev = [
 
 [project.scripts]
 aa = "aa.cli:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
