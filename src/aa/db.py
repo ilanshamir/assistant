@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS todos (
     status TEXT DEFAULT 'pending',
     category TEXT,
     project TEXT,
+    due_date TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     completed_at TEXT
 );
@@ -197,11 +198,12 @@ class Database:
         priority: int = 3,
         category: str | None = None,
         project: str | None = None,
+        due_date: str | None = None,
     ) -> str:
         todo_id = _new_id()
         await self.db.execute(
-            "INSERT INTO todos (id, title, priority, category, project) VALUES (?, ?, ?, ?, ?)",
-            (todo_id, title, priority, category, project),
+            "INSERT INTO todos (id, title, priority, category, project, due_date) VALUES (?, ?, ?, ?, ?, ?)",
+            (todo_id, title, priority, category, project, due_date),
         )
         await self.db.commit()
         return todo_id

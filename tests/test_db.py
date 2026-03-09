@@ -162,6 +162,20 @@ async def test_todo_with_category_and_project(db):
 
 
 @pytest.mark.asyncio
+async def test_todo_with_due_date(db):
+    todo_id = await db.insert_todo(
+        title="Submit report", priority=2, due_date="2026-03-15"
+    )
+    todo = await db.get_todo(todo_id)
+    assert todo["due_date"] == "2026-03-15"
+
+    # Update due date
+    await db.update_todo(todo_id, due_date="2026-03-20")
+    updated = await db.get_todo(todo_id)
+    assert updated["due_date"] == "2026-03-20"
+
+
+@pytest.mark.asyncio
 async def test_items_untriaged(db):
     item = {
         "id": "untriaged-1",
