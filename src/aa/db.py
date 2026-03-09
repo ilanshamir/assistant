@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS todos (
     title TEXT NOT NULL,
     priority INTEGER DEFAULT 3,
     status TEXT DEFAULT 'pending',
+    category TEXT,
+    project TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     completed_at TEXT
 );
@@ -189,11 +191,17 @@ class Database:
 
     # --- Todos ---
 
-    async def insert_todo(self, title: str, priority: int = 3) -> str:
+    async def insert_todo(
+        self,
+        title: str,
+        priority: int = 3,
+        category: str | None = None,
+        project: str | None = None,
+    ) -> str:
         todo_id = _new_id()
         await self.db.execute(
-            "INSERT INTO todos (id, title, priority) VALUES (?, ?, ?)",
-            (todo_id, title, priority),
+            "INSERT INTO todos (id, title, priority, category, project) VALUES (?, ?, ?, ?, ?)",
+            (todo_id, title, priority, category, project),
         )
         await self.db.commit()
         return todo_id
@@ -203,16 +211,25 @@ class Database:
         row = await cursor.fetchone()
         return _row_to_dict(row) if row else None
 
-    async def list_todos(self, status: str | None = None) -> list[dict[str, Any]]:
+    async def list_todos(
+        self,
+        status: str | None = None,
+        category: str | None = None,
+        project: str | None = None,
+    ) -> list[dict[str, Any]]:
+        query = "SELECT * FROM todos WHERE 1=1"
+        params: list[Any] = []
         if status:
-            cursor = await self.db.execute(
-                "SELECT * FROM todos WHERE status = ? ORDER BY priority, created_at",
-                (status,),
-            )
-        else:
-            cursor = await self.db.execute(
-                "SELECT * FROM todos ORDER BY priority, created_at"
-            )
+            query += " AND status = ?"
+            params.append(status)
+        if category:
+            query += " AND category = ?"
+            params.append(category)
+        if project:
+            query += " AND project = ?"
+            params.append(project)
+        query += " ORDER BY priority, created_at"
+        cursor = await self.db.execute(query, params)
         rows = await cursor.fetchall()
         return [_row_to_dict(r) for r in rows]
 

@@ -127,6 +127,41 @@ async def test_triage_rules(db):
     assert len(rules) == 0
 
 @pytest.mark.asyncio
+async def test_todo_with_category_and_project(db):
+    await db.insert_todo(title="Review PR", priority=2, category="work", project="Q3 launch")
+    await db.insert_todo(title="Buy groceries", priority=3, category="private")
+    await db.insert_todo(title="Update roadmap", priority=1, category="work", project="product mgmt")
+
+    # List all
+    all_todos = await db.list_todos()
+    assert len(all_todos) == 3
+
+    # Filter by category
+    work_todos = await db.list_todos(category="work")
+    assert len(work_todos) == 2
+    assert all(t["category"] == "work" for t in work_todos)
+
+    private_todos = await db.list_todos(category="private")
+    assert len(private_todos) == 1
+    assert private_todos[0]["title"] == "Buy groceries"
+
+    # Filter by project
+    q3_todos = await db.list_todos(project="Q3 launch")
+    assert len(q3_todos) == 1
+    assert q3_todos[0]["title"] == "Review PR"
+
+    # Filter by both
+    work_q3 = await db.list_todos(category="work", project="Q3 launch")
+    assert len(work_q3) == 1
+
+    # Update category via update_todo
+    todo = work_todos[0]
+    await db.update_todo(todo["id"], category="private")
+    updated = await db.get_todo(todo["id"])
+    assert updated["category"] == "private"
+
+
+@pytest.mark.asyncio
 async def test_items_untriaged(db):
     item = {
         "id": "untriaged-1",
