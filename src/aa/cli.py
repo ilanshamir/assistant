@@ -285,13 +285,39 @@ def todo(ctx):
 main.add_command(todo)
 
 
-def _todo_list_impl(show_all: bool = False, category: str | None = None, project: str | None = None):
+def _todo_list_impl(
+    show_all: bool = False,
+    category: str | None = None,
+    project: str | None = None,
+    priority: int | None = None,
+    max_priority: int | None = None,
+    keyword: str | None = None,
+    due: str | None = None,
+):
     """Shared implementation for listing todos."""
     args: dict = {}
     if category:
         args["category"] = category
     if project:
         args["project"] = project
+    if priority is not None:
+        args["priority"] = priority
+    if max_priority is not None:
+        args["max_priority"] = max_priority
+    if keyword:
+        args["keyword"] = keyword
+    if due:
+        # Handle special keywords
+        from datetime import date, timedelta
+        today = date.today()
+        if due == "overdue":
+            args["due_before"] = (today - timedelta(days=1)).isoformat()
+        elif due == "today":
+            args["due_before"] = today.isoformat()
+        elif due == "week":
+            args["due_before"] = (today + timedelta(days=7)).isoformat()
+        else:
+            args["due_before"] = due  # assume YYYY-MM-DD
     if show_all:
         args["all"] = True
 
@@ -323,10 +349,18 @@ def _todo_list_impl(show_all: bool = False, category: str | None = None, project
 @todo.command("list")
 @click.option("--all", "show_all", is_flag=True, help="Show all including done")
 @click.option("--category", "-c", default=None, help="Filter by category")
-@click.option("--project", "-p", default=None, help="Filter by project")
-def todo_list(show_all, category, project):
+@click.option("--project", default=None, help="Filter by project")
+@click.option("--priority", "-p", type=int, default=None, help="Filter by exact priority (1-5)")
+@click.option("--urgent", is_flag=True, help="Show only P1-P2 items")
+@click.option("--keyword", "-k", default=None, help="Search title and notes")
+@click.option("--due", default=None, help="Filter by due date: overdue, today, week, or YYYY-MM-DD")
+def todo_list(show_all, category, project, priority, urgent, keyword, due):
     """List todos with optional filters."""
-    _todo_list_impl(show_all=show_all, category=category, project=project)
+    max_priority = 2 if urgent else None
+    _todo_list_impl(
+        show_all=show_all, category=category, project=project,
+        priority=priority, max_priority=max_priority, keyword=keyword, due=due,
+    )
 
 
 @todo.command("add")

@@ -162,6 +162,49 @@ async def test_todo_with_category_and_project(db):
 
 
 @pytest.mark.asyncio
+async def test_todo_filter_by_priority(db):
+    await db.insert_todo(title="Urgent", priority=1)
+    await db.insert_todo(title="Normal", priority=3)
+    await db.insert_todo(title="Low", priority=5)
+
+    p1 = await db.list_todos(priority=1)
+    assert len(p1) == 1
+    assert p1[0]["title"] == "Urgent"
+
+    high = await db.list_todos(max_priority=2)
+    assert len(high) == 1
+    assert high[0]["title"] == "Urgent"
+
+
+@pytest.mark.asyncio
+async def test_todo_filter_by_keyword(db):
+    await db.insert_todo(title="Review Bob's PR", priority=2)
+    await db.insert_todo(title="Buy groceries", priority=4)
+    tid = await db.insert_todo(title="Deploy fix", priority=1)
+    await db.update_todo(tid, notes="Bob requested this urgently")
+
+    results = await db.list_todos(keyword="Bob")
+    assert len(results) == 2
+    titles = {r["title"] for r in results}
+    assert "Review Bob's PR" in titles
+    assert "Deploy fix" in titles
+
+    results = await db.list_todos(keyword="groceries")
+    assert len(results) == 1
+
+
+@pytest.mark.asyncio
+async def test_todo_filter_by_due_before(db):
+    await db.insert_todo(title="Soon", priority=1, due_date="2026-03-10")
+    await db.insert_todo(title="Later", priority=2, due_date="2026-03-20")
+    await db.insert_todo(title="No due", priority=3)
+
+    results = await db.list_todos(due_before="2026-03-15")
+    assert len(results) == 1
+    assert results[0]["title"] == "Soon"
+
+
+@pytest.mark.asyncio
 async def test_todo_with_due_date(db):
     todo_id = await db.insert_todo(
         title="Submit report", priority=2, due_date="2026-03-15"

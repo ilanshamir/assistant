@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS todos (
     category TEXT,
     project TEXT,
     due_date TEXT,
+    notes TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     completed_at TEXT
 );
@@ -218,6 +219,10 @@ class Database:
         status: str | None = None,
         category: str | None = None,
         project: str | None = None,
+        priority: int | None = None,
+        max_priority: int | None = None,
+        keyword: str | None = None,
+        due_before: str | None = None,
     ) -> list[dict[str, Any]]:
         query = "SELECT * FROM todos WHERE 1=1"
         params: list[Any] = []
@@ -230,6 +235,19 @@ class Database:
         if project:
             query += " AND project = ?"
             params.append(project)
+        if priority is not None:
+            query += " AND priority = ?"
+            params.append(priority)
+        if max_priority is not None:
+            query += " AND priority <= ?"
+            params.append(max_priority)
+        if keyword:
+            query += " AND (title LIKE ? OR notes LIKE ?)"
+            like = f"%{keyword}%"
+            params.extend([like, like])
+        if due_before:
+            query += " AND due_date IS NOT NULL AND due_date <= ?"
+            params.append(due_before)
         query += " ORDER BY priority, created_at"
         cursor = await self.db.execute(query, params)
         rows = await cursor.fetchall()

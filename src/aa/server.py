@@ -88,10 +88,15 @@ class RequestHandler:
         return {"ok": True, "item": item}
 
     async def _cmd_todo(self, args: dict) -> dict:
-        """List todos, optionally filtered by category/project."""
-        category = args.get("category")
-        project = args.get("project")
-        todos = await self.db.list_todos(category=category, project=project)
+        """List todos with filters."""
+        todos = await self.db.list_todos(
+            category=args.get("category"),
+            project=args.get("project"),
+            priority=args.get("priority"),
+            max_priority=args.get("max_priority"),
+            keyword=args.get("keyword"),
+            due_before=args.get("due_before"),
+        )
         return {"ok": True, "todos": todos}
 
     async def _cmd_todo_add(self, args: dict) -> dict:
