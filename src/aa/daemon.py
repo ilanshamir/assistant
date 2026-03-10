@@ -7,11 +7,11 @@ import logging
 import signal
 from typing import Any
 
-from aa.ai.notes import NotesExtractor
 from aa.ai.rules import build_feedback_summary
 from aa.ai.triage import TriageEngine
 from aa.config import AppConfig
 from aa.connectors.base import BaseConnector
+from aa.connectors.files import FilesConnector
 from aa.connectors.calendar import GoogleCalendarConnector, OutlookCalendarConnector
 from aa.connectors.gmail import GmailConnector
 from aa.connectors.mattermost import MattermostConnector
@@ -29,6 +29,7 @@ POLL_INTERVALS: dict[str, str] = {
     "outlook": "poll_interval_email",
     "slack": "poll_interval_slack",
     "mattermost": "poll_interval_mattermost",
+    "files": "poll_interval_files",
 }
 
 
@@ -39,8 +40,6 @@ class Daemon:
         self.config = config
         self._db: Database | None = None
         self._engine: TriageEngine | None = None
-        self._notes_extractor: NotesExtractor | None = None
-        self._notes_watcher = None
         self._server: SocketServer | None = None
         self._connectors: list[BaseConnector] = []
         self._running = False
@@ -53,20 +52,12 @@ class Daemon:
         self._db = Database(self.config.db_path)
         await self._db.initialize()
 
-        # Initialize AI triage engine and notes extractor if API key is available
+        # Initialize AI triage engine if API key is available
         if self.config.anthropic_api_key:
             self._engine = TriageEngine(
                 api_key=self.config.anthropic_api_key,
                 model=self.config.anthropic_model,
             )
-            self._notes_extractor = NotesExtractor(
-                api_key=self.config.anthropic_api_key,
-                model=self.config.anthropic_model,
-            )
-
-        # Process existing notes file on startup
-        if self.config.notes_file and self._notes_extractor:
-            await self._import_notes_file()
 
         # Initialize connectors from source configs
         for source_name, source_config in self.config.sources.items():
@@ -85,16 +76,6 @@ class Daemon:
         handler = RequestHandler(self.config, self._db)
         self._server = SocketServer(handler, self.config.socket_path)
         await self._server.start()
-
-        # Start notes file watcher
-        if self.config.notes_file and self._notes_extractor:
-            from aa.notes_watcher import NotesWatcher
-
-            loop = asyncio.get_event_loop()
-            self._notes_watcher = NotesWatcher(
-                self.config.notes_file, self._on_notes_changed, loop
-            )
-            self._notes_watcher.start()
 
         # Start polling loop
         self._running = True
@@ -136,94 +117,18 @@ class Daemon:
             if channels:
                 connector.set_watched_channels(channels)
             return connector
+        elif source_type == "files":
+            return FilesConnector(
+                source_name=source_name,
+                path=source_config.get("path", ""),
+            )
         else:
             logger.warning("Unknown source type: %s for %s", source_type, source_name)
             return None
 
-    async def _import_notes_file(self) -> None:
-        """Process the entire notes file on startup, extracting todos."""
-        from pathlib import Path
-
-        assert self._db is not None
-        assert self._notes_extractor is not None
-
-        notes_path = Path(self.config.notes_file)
-        if not notes_path.exists():
-            logger.warning("Notes file not found: %s", notes_path)
-            return
-
-        # Check if we've already imported this file (avoid re-importing on restart)
-        last_import = await self._db.get_config("notes_last_import_hash")
-        content = notes_path.read_text()
-        import hashlib
-        content_hash = hashlib.sha256(content.encode()).hexdigest()
-
-        if last_import == content_hash:
-            logger.info("Notes file unchanged since last import, skipping")
-            return
-
-        logger.info("Importing todos from notes file: %s", notes_path)
-        await self._extract_and_store_todos(content)
-        await self._db.set_config("notes_last_import_hash", content_hash)
-
-    async def _on_notes_changed(self, new_content: str) -> None:
-        """Callback when the notes file has new content."""
-        logger.info("Notes file changed, extracting todos from new content")
-        await self._extract_and_store_todos(new_content)
-
-        # Update the hash so we don't re-import on restart
-        if self._db and self.config.notes_file:
-            from pathlib import Path
-            import hashlib
-            content = Path(self.config.notes_file).read_text()
-            content_hash = hashlib.sha256(content.encode()).hexdigest()
-            await self._db.set_config("notes_last_import_hash", content_hash)
-
-    async def _extract_and_store_todos(self, content: str) -> None:
-        """Use AI to extract todos from notes content and store them in DB."""
-        assert self._db is not None
-        assert self._notes_extractor is not None
-
-        try:
-            todos = await self._notes_extractor.extract_todos(content)
-        except Exception:
-            logger.exception("Failed to extract todos from notes")
-            return
-
-        for todo in todos:
-            title = todo.get("title", "").strip()
-            if not title:
-                continue
-
-            # Check for duplicate by title (avoid adding the same todo twice)
-            existing = await self._db.list_todos()
-            if any(t["title"].lower() == title.lower() for t in existing):
-                logger.debug("Skipping duplicate todo: %s", title)
-                continue
-
-            todo_id = await self._db.insert_todo(
-                title=title,
-                priority=todo.get("priority", 3),
-                category=todo.get("category"),
-                project=todo.get("project"),
-                due_date=todo.get("due_date"),
-            )
-
-            # Store the extraction notes as a todo note if provided
-            notes_text = todo.get("notes")
-            if notes_text:
-                await self._db.update_todo(todo_id, notes=notes_text)
-
-            logger.info("Added todo from notes: %s (P%d)", title, todo.get("priority", 3))
-
-        if todos:
-            logger.info("Extracted %d todos from notes", len(todos))
-
     async def stop(self) -> None:
         """Stop the server and close the database."""
         self._running = False
-        if self._notes_watcher:
-            self._notes_watcher.stop()
         if self._server:
             await self._server.stop()
         if self._db:
