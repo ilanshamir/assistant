@@ -191,6 +191,46 @@ class TestSourceAdd:
         ])
         assert result.exit_code != 0
 
+    def test_add_files_source_single_file(self, runner, patched_config, tmp_path):
+        notes = tmp_path / "notes.txt"
+        notes.write_text("some notes")
+        result = runner.invoke(main, [
+            "source", "add", "mynotes",
+            "--type", "files",
+            "--path", str(notes),
+        ])
+        assert result.exit_code == 0, result.output
+        assert "mynotes" in result.output
+
+        cfg = AppConfig.from_file(patched_config.data_dir / "config.json")
+        src = cfg.sources["mynotes"]
+        assert src["type"] == "files"
+        assert src["path"] == str(notes)
+        assert src["enabled"] is True
+
+    def test_add_files_source_directory(self, runner, patched_config, tmp_path):
+        notes_dir = tmp_path / "notes"
+        notes_dir.mkdir()
+        result = runner.invoke(main, [
+            "source", "add", "alldocs",
+            "--type", "files",
+            "--path", str(notes_dir),
+        ])
+        assert result.exit_code == 0, result.output
+
+        cfg = AppConfig.from_file(patched_config.data_dir / "config.json")
+        src = cfg.sources["alldocs"]
+        assert src["type"] == "files"
+        assert src["path"] == str(notes_dir)
+
+    def test_add_files_missing_path(self, runner, patched_config):
+        result = runner.invoke(main, [
+            "source", "add", "mynotes",
+            "--type", "files",
+        ])
+        assert result.exit_code != 0
+        assert "path" in result.output.lower() or "required" in result.output.lower()
+
     def test_add_creates_credentials_dir(self, runner, patched_config):
         result = runner.invoke(main, [
             "source", "add", "resilio",

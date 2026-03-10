@@ -551,7 +551,7 @@ def rule_rm(rule_id):
 # Source management
 # ---------------------------------------------------------------------------
 
-VALID_SOURCE_TYPES = ("gmail", "outlook", "slack", "mattermost")
+VALID_SOURCE_TYPES = ("gmail", "outlook", "slack", "mattermost", "files")
 
 
 @main.group(invoke_without_command=True)
@@ -575,7 +575,8 @@ main.add_command(source)
 @click.option("--token", default=None, help="API token (slack, mattermost)")
 @click.option("--url", default=None, help="Server URL (mattermost)")
 @click.option("--channels", default=None, help="Comma-separated channel IDs to watch")
-def source_add(name, source_type, credentials_file, client_id, tenant_id, token, url, channels):
+@click.option("--path", default=None, help="File or directory path (files)")
+def source_add(name, source_type, credentials_file, client_id, tenant_id, token, url, channels, path):
     """Add or configure a source."""
     config = _config
 
@@ -631,6 +632,16 @@ def source_add(name, source_type, credentials_file, client_id, tenant_id, token,
             "enabled": True,
         }
         msg = f"Source '{name}' (mattermost) added."
+
+    elif source_type == "files":
+        if not path:
+            raise click.UsageError("--path is required for files sources")
+        source_cfg = {
+            "type": "files",
+            "path": path,
+            "enabled": True,
+        }
+        msg = f"Source '{name}' (files) added."
 
     config.ensure_dirs()
     config.sources[name] = source_cfg
