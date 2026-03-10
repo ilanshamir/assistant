@@ -17,6 +17,7 @@ class TestConfigDefaults:
         assert cfg.poll_interval_slack == 30
         assert cfg.poll_interval_calendar == 300
         assert cfg.poll_interval_mattermost == 30
+        assert cfg.poll_interval_files == 120
 
     def test_default_notification_threshold(self):
         cfg = AppConfig()
