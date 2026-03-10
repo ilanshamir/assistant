@@ -641,6 +641,94 @@ def source_rm(name):
 # Setup
 # ---------------------------------------------------------------------------
 
+@main.command("import-notes")
+@click.argument("file_path", required=False)
+def import_notes(file_path):
+    """Import todos from a notes file using AI extraction."""
+    config = _config
+    notes_path = file_path or config.notes_file
+    if not notes_path:
+        click.echo("No notes file specified. Pass a path or set it in config.")
+        return
+
+    from pathlib import Path
+    path = Path(notes_path).expanduser()
+    if not path.exists():
+        click.echo(f"File not found: {path}")
+        return
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or config.anthropic_api_key
+    if not api_key:
+        click.echo("No Anthropic API key. Run 'aa setup' or set ANTHROPIC_API_KEY.")
+        return
+
+    click.echo(f"Reading {path}...")
+    content = path.read_text()
+    if not content.strip():
+        click.echo("File is empty.")
+        return
+
+    click.echo(f"Extracting todos from {len(content)} chars of notes...")
+
+    from aa.ai.notes import NotesExtractor
+
+    extractor = NotesExtractor(api_key=api_key, model=config.anthropic_model)
+    todos = asyncio.run(extractor.extract_todos(content))
+
+    if not todos:
+        click.echo("No actionable items found.")
+        return
+
+    click.echo(f"\nFound {len(todos)} actionable items:\n")
+    for i, todo in enumerate(todos, 1):
+        p = todo.get("priority", 3)
+        cat = f"  @{todo['category']}" if todo.get("category") else ""
+        proj = f"  #{todo['project']}" if todo.get("project") else ""
+        due = f"  due:{todo['due_date']}" if todo.get("due_date") else ""
+        notes = f"\n     {todo['notes']}" if todo.get("notes") else ""
+        label = click.style(f"P{p}", fg=PRIORITY_COLORS.get(p, "white"))
+        click.echo(f"  {i}. {label} {todo['title']}{cat}{proj}{due}{notes}")
+
+    click.echo()
+    if click.confirm("Add these to your todo list?"):
+        resp = send({"command": "status"})
+        if "error" in resp:
+            # Daemon not running — write directly to DB
+            click.echo("Daemon not running. Adding directly to database...")
+            from aa.db import Database
+            db = Database(config.db_path)
+            asyncio.run(_add_todos_to_db(db, todos))
+        else:
+            # Use daemon to add
+            for todo in todos:
+                send({"command": "todo_add", "args": {
+                    "title": todo.get("title", ""),
+                    "priority": todo.get("priority", 3),
+                    "category": todo.get("category"),
+                    "project": todo.get("project"),
+                    "due_date": todo.get("due_date"),
+                    "note": todo.get("notes"),
+                }})
+        click.echo(f"Added {len(todos)} todos.")
+    else:
+        click.echo("Cancelled.")
+
+
+async def _add_todos_to_db(db, todos):
+    """Add todos directly to DB when daemon is not running."""
+    from aa.db import Database
+    await db.initialize()
+    for todo in todos:
+        await db.insert_todo(
+            title=todo.get("title", ""),
+            priority=todo.get("priority", 3),
+            category=todo.get("category"),
+            project=todo.get("project"),
+            due_date=todo.get("due_date"),
+        )
+    await db.close()
+
+
 @main.command()
 def setup():
     """First-run setup wizard."""
