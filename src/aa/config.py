@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, fields, asdict
 from pathlib import Path
 
 
@@ -46,7 +46,10 @@ class AppConfig:
             data = json.load(f)
         if "data_dir" in data:
             data["data_dir"] = Path(data["data_dir"])
-        return cls(**data)
+        # Only pass keys that match dataclass fields
+        valid_fields = {f.name for f in fields(cls)}
+        filtered = {k: v for k, v in data.items() if k in valid_fields}
+        return cls(**filtered)
 
     def ensure_dirs(self) -> None:
         """Create data_dir, log_dir, and credentials_dir if they don't exist."""

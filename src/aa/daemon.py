@@ -11,7 +11,7 @@ from aa.ai.rules import build_feedback_summary
 from aa.ai.triage import TriageEngine
 from aa.config import AppConfig
 from aa.connectors.base import BaseConnector
-from aa.connectors.calendar import CalendarConnector
+from aa.connectors.calendar import GoogleCalendarConnector, OutlookCalendarConnector
 from aa.connectors.gmail import GmailConnector
 from aa.connectors.mattermost import MattermostConnector
 from aa.connectors.outlook import OutlookConnector
@@ -22,21 +22,12 @@ from aa.server import RequestHandler, SocketServer
 
 logger = logging.getLogger(__name__)
 
-CONNECTOR_MAP: dict[str, type[BaseConnector]] = {
-    "gmail": GmailConnector,
-    "outlook": OutlookConnector,
-    "slack": SlackConnector,
-    "mattermost": MattermostConnector,
-    "calendar": CalendarConnector,
-}
-
-# Map source names to their poll interval config keys
+# Map source types to their poll interval config keys
 POLL_INTERVALS: dict[str, str] = {
     "gmail": "poll_interval_email",
     "outlook": "poll_interval_email",
     "slack": "poll_interval_slack",
     "mattermost": "poll_interval_mattermost",
-    "calendar": "poll_interval_calendar",
 }
 
 
@@ -66,13 +57,18 @@ class Daemon:
                 model=self.config.anthropic_model,
             )
 
-        # Initialize connectors
+        # Initialize connectors from source configs
         for source_name, source_config in self.config.sources.items():
-            connector_cls = CONNECTOR_MAP.get(source_name)
-            if connector_cls:
-                connector = connector_cls(source_config)
-                self._connectors.append(connector)
-                logger.info("Initialized connector: %s", source_name)
+            if not source_config.get("enabled", True):
+                continue
+            source_type = source_config.get("type", "")
+            try:
+                connector = self._create_connector(source_name, source_config)
+                if connector:
+                    self._connectors.append(connector)
+                    logger.info("Initialized connector: %s (%s)", source_name, source_type)
+            except Exception:
+                logger.exception("Failed to initialize connector: %s", source_name)
 
         # Start socket server
         handler = RequestHandler(self.config, self._db)
@@ -82,6 +78,46 @@ class Daemon:
         # Start polling loop
         self._running = True
         await self._poll_loop()
+
+    def _create_connector(
+        self, source_name: str, source_config: dict
+    ) -> BaseConnector | None:
+        """Create a connector instance from source config."""
+        source_type = source_config.get("type", "")
+
+        if source_type == "gmail":
+            return GmailConnector(
+                credentials_path=source_config.get("credentials_file", ""),
+                token_path=source_config.get("token_path", ""),
+            )
+        elif source_type == "outlook":
+            return OutlookConnector(
+                source_name=source_name,
+                client_id=source_config.get("client_id", ""),
+                tenant_id=source_config.get("tenant_id", "common"),
+                token_cache_path=source_config.get("token_cache_path"),
+            )
+        elif source_type == "slack":
+            connector = SlackConnector(
+                source_name=source_name,
+                bot_token=source_config.get("token"),
+            )
+            channels = source_config.get("watched_channels", [])
+            if channels:
+                connector.set_watched_channels(channels)
+            return connector
+        elif source_type == "mattermost":
+            connector = MattermostConnector(
+                url=source_config.get("url"),
+                token=source_config.get("token"),
+            )
+            channels = source_config.get("watched_channels", [])
+            if channels:
+                connector.set_watched_channels(channels)
+            return connector
+        else:
+            logger.warning("Unknown source type: %s for %s", source_type, source_name)
+            return None
 
     async def stop(self) -> None:
         """Stop the server and close the database."""
@@ -209,6 +245,11 @@ class Daemon:
 
 def run_daemon(config: AppConfig) -> None:
     """Entry point that sets up signal handlers and runs the daemon."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
+
     daemon = Daemon(config)
 
     loop = asyncio.new_event_loop()
@@ -226,3 +267,19 @@ def run_daemon(config: AppConfig) -> None:
         loop.run_until_complete(daemon.stop())
     finally:
         loop.close()
+
+
+if __name__ == "__main__":
+    import os
+
+    config = AppConfig()
+    config_path = config.data_dir / "config.json"
+    if config_path.exists():
+        config = AppConfig.from_file(config_path)
+
+    # Load API key from environment or config
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or config.anthropic_api_key
+    if api_key:
+        config.anthropic_api_key = api_key
+
+    run_daemon(config)
