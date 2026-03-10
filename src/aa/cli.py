@@ -99,7 +99,9 @@ def display_error(resp: dict) -> None:
 def main(ctx):
     """AA - Personal AI Assistant."""
     if ctx.invoked_subcommand is None:
-        click.echo(ctx.get_help())
+        from aa.shell import AAShell
+        shell = AAShell()
+        shell.cmdloop()
 
 
 # ---------------------------------------------------------------------------
