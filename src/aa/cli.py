@@ -21,7 +21,19 @@ from aa.config import AppConfig
 # Socket communication helpers
 # ---------------------------------------------------------------------------
 
-_config = AppConfig()
+def _load_config() -> AppConfig:
+    """Load config from file if it exists, otherwise use defaults."""
+    config = AppConfig()
+    config_path = config.data_dir / "config.json"
+    if config_path.exists():
+        config = AppConfig.from_file(config_path)
+    # Also check env for API key
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if api_key:
+        config.anthropic_api_key = api_key
+    return config
+
+_config = _load_config()
 
 
 async def send_command(socket_path: str | Path, request: dict) -> dict:
