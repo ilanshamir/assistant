@@ -16,8 +16,8 @@ class AppConfig:
     poll_interval_slack: int = 30
     poll_interval_calendar: int = 300
     poll_interval_mattermost: int = 30
+    poll_interval_files: int = 120
     notification_threshold: int = 2
-    notes_file: str | None = None
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-4-20250514"
     sources: dict = field(default_factory=dict)

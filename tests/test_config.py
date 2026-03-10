@@ -22,10 +22,6 @@ class TestConfigDefaults:
         cfg = AppConfig()
         assert cfg.notification_threshold == 2
 
-    def test_default_notes_file_is_none(self):
-        cfg = AppConfig()
-        assert cfg.notes_file is None
-
     def test_default_anthropic_api_key_is_none(self):
         cfg = AppConfig()
         assert cfg.anthropic_api_key is None
@@ -65,12 +61,12 @@ class TestConfigFromFile:
         config_file.write_text(json.dumps({
             "poll_interval_email": 120,
             "notification_threshold": 5,
-            "notes_file": "/tmp/notes.md",
+            "poll_interval_files": 60,
         }))
         cfg = AppConfig.from_file(config_file)
         assert cfg.poll_interval_email == 120
         assert cfg.notification_threshold == 5
-        assert cfg.notes_file == "/tmp/notes.md"
+        assert cfg.poll_interval_files == 60
         # defaults preserved
         assert cfg.poll_interval_slack == 30
 
