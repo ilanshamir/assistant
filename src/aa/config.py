@@ -34,6 +34,10 @@ class AppConfig:
     def log_dir(self) -> Path:
         return self.data_dir / "logs"
 
+    @property
+    def credentials_dir(self) -> Path:
+        return self.data_dir / "credentials"
+
     @classmethod
     def from_file(cls, path: Path | str) -> AppConfig:
         """Load config from a JSON file, applying values over defaults."""
@@ -45,9 +49,10 @@ class AppConfig:
         return cls(**data)
 
     def ensure_dirs(self) -> None:
-        """Create data_dir and log_dir if they don't exist."""
+        """Create data_dir, log_dir, and credentials_dir if they don't exist."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
+        self.credentials_dir.mkdir(parents=True, exist_ok=True)
 
     def save(self, path: Path | str | None = None) -> None:
         """Save config to JSON. Does not save api_key to file."""

@@ -502,6 +502,142 @@ def rule_rm(rule_id):
 
 
 # ---------------------------------------------------------------------------
+# Source management
+# ---------------------------------------------------------------------------
+
+VALID_SOURCE_TYPES = ("gmail", "outlook", "slack", "mattermost")
+
+
+@main.group(invoke_without_command=True)
+@click.pass_context
+def source(ctx):
+    """Manage source credentials."""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+main.add_command(source)
+
+
+@source.command("add")
+@click.argument("name")
+@click.option("--type", "source_type", required=True, type=click.Choice(VALID_SOURCE_TYPES),
+              help="Source type")
+@click.option("--credentials-file", default=None, help="Path to OAuth client secret JSON (gmail)")
+@click.option("--client-id", default=None, help="OAuth client ID (outlook)")
+@click.option("--tenant-id", default=None, help="Azure AD tenant ID (outlook, default: common)")
+@click.option("--token", default=None, help="API token (slack, mattermost)")
+@click.option("--url", default=None, help="Server URL (mattermost)")
+@click.option("--channels", default=None, help="Comma-separated channel IDs to watch")
+def source_add(name, source_type, credentials_file, client_id, tenant_id, token, url, channels):
+    """Add or configure a source."""
+    config = _config
+
+    # Validate required options per type
+    if source_type == "gmail":
+        if not credentials_file:
+            raise click.UsageError("--credentials-file is required for gmail sources")
+        token_path = str(config.credentials_dir / f"{name}.token.json")
+        source_cfg = {
+            "type": "gmail",
+            "credentials_file": credentials_file,
+            "token_path": token_path,
+            "enabled": True,
+        }
+        msg = f"Source '{name}' (gmail) added. OAuth will run when the daemon starts."
+
+    elif source_type == "outlook":
+        if not client_id:
+            raise click.UsageError("--client-id is required for outlook sources")
+        token_cache_path = str(config.credentials_dir / f"{name}.token.json")
+        source_cfg = {
+            "type": "outlook",
+            "client_id": client_id,
+            "tenant_id": tenant_id or "common",
+            "token_cache_path": token_cache_path,
+            "enabled": True,
+        }
+        msg = f"Source '{name}' (outlook) added. OAuth will run when the daemon starts."
+
+    elif source_type == "slack":
+        if not token:
+            raise click.UsageError("--token is required for slack sources")
+        watched = [ch.strip() for ch in channels.split(",")] if channels else []
+        source_cfg = {
+            "type": "slack",
+            "token": token,
+            "watched_channels": watched,
+            "enabled": True,
+        }
+        msg = f"Source '{name}' (slack) added."
+
+    elif source_type == "mattermost":
+        if not url:
+            raise click.UsageError("--url is required for mattermost sources")
+        if not token:
+            raise click.UsageError("--token is required for mattermost sources")
+        watched = [ch.strip() for ch in channels.split(",")] if channels else []
+        source_cfg = {
+            "type": "mattermost",
+            "url": url,
+            "token": token,
+            "watched_channels": watched,
+            "enabled": True,
+        }
+        msg = f"Source '{name}' (mattermost) added."
+
+    config.ensure_dirs()
+    config.sources[name] = source_cfg
+    config.save()
+    click.echo(msg)
+
+
+@source.command("list")
+def source_list():
+    """List configured sources."""
+    config = _config
+    sources = config.sources
+    if not sources:
+        click.echo("No sources configured.")
+        return
+
+    for name, src in sources.items():
+        src_type = src.get("type", "unknown")
+        status = "enabled" if src.get("enabled", True) else "disabled"
+        parts = f"  {name:20s} {src_type:12s} {status}"
+        # For OAuth sources, check if token file exists
+        token_file = src.get("token_path") or src.get("token_cache_path")
+        if token_file:
+            from pathlib import Path as _P
+            if _P(token_file).expanduser().exists():
+                parts += "   token: valid"
+        click.echo(parts)
+
+
+@source.command("rm")
+@click.argument("name")
+def source_rm(name):
+    """Remove a source."""
+    config = _config
+    if name not in config.sources:
+        click.echo(click.style(f"Source '{name}' not found.", fg="red"))
+        raise SystemExit(1)
+
+    src = config.sources.pop(name)
+
+    # Clean up credential files for OAuth sources
+    token_file = src.get("token_path") or src.get("token_cache_path")
+    if token_file:
+        from pathlib import Path as _P
+        p = _P(token_file).expanduser()
+        if p.exists():
+            p.unlink()
+
+    config.save()
+    click.echo(f"Source '{name}' removed.")
+
+
+# ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
 
