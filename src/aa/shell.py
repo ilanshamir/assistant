@@ -182,11 +182,11 @@ class AAShell(cmd.Cmd):
             flags, _ = self._parse_flags(rest, {
                 "--all": "!all",
                 "--category": "category", "-c": "category",
-                "--project": "project",
+                "--project": "project", "-j": "project",
                 "--priority": "priority", "-p": "priority",
-                "--urgent": "!urgent",
+                "--urgent": "!urgent", "-u": "!urgent",
                 "--keyword": "keyword", "-k": "keyword",
-                "--due": "due",
+                "--due": "due", "-d": "due",
             })
             args: dict[str, Any] = {}
             if flags.get("all"):
@@ -240,10 +240,10 @@ class AAShell(cmd.Cmd):
             rest = tokens[1:]
             flags, positional = self._parse_flags(rest, {
                 "--priority": "priority", "-p": "priority",
-                "--due": "due",
-                "--note": "note",
+                "--due": "due", "-d": "due",
+                "--note": "note", "-n": "note",
                 "--category": "category", "-c": "category",
-                "--project": "project",
+                "--project": "project", "-j": "project",
             })
             if not positional:
                 self._print("Usage: todo add TITLE [--priority N] [--due DATE]")
@@ -282,11 +282,11 @@ class AAShell(cmd.Cmd):
             rest = tokens[2:]
             flags, _ = self._parse_flags(rest, {
                 "--priority": "priority", "-p": "priority",
-                "--title": "title",
-                "--note": "note",
+                "--title": "title", "-t": "title",
+                "--note": "note", "-n": "note",
                 "--category": "category", "-c": "category",
-                "--project": "project",
-                "--due": "due",
+                "--project": "project", "-j": "project",
+                "--due": "due", "-d": "due",
             })
             args = {"id": todo_id}
             if flags.get("priority"):

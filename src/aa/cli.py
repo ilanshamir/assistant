@@ -351,11 +351,11 @@ def _todo_list_impl(
 @todo.command("list")
 @click.option("--all", "show_all", is_flag=True, help="Show all including done")
 @click.option("--category", "-c", default=None, help="Filter by category")
-@click.option("--project", default=None, help="Filter by project")
+@click.option("--project", "-j", default=None, help="Filter by project")
 @click.option("--priority", "-p", type=int, default=None, help="Filter by exact priority (1-5)")
-@click.option("--urgent", is_flag=True, help="Show only P1-P2 items")
+@click.option("--urgent", "-u", is_flag=True, help="Show only P1-P2 items")
 @click.option("--keyword", "-k", default=None, help="Search title and notes")
-@click.option("--due", default=None, help="Filter by due date: overdue, today, week, or YYYY-MM-DD")
+@click.option("--due", "-d", default=None, help="Filter by due date: overdue, today, week, or YYYY-MM-DD")
 def todo_list(show_all, category, project, priority, urgent, keyword, due):
     """List todos with optional filters."""
     max_priority = 2 if urgent else None
@@ -368,10 +368,10 @@ def todo_list(show_all, category, project, priority, urgent, keyword, due):
 @todo.command("add")
 @click.argument("title")
 @click.option("--priority", "-p", type=int, default=3, help="Priority (1-5)")
-@click.option("--due", default=None, help="Due date")
-@click.option("--note", default=None, help="Note text")
+@click.option("--due", "-d", default=None, help="Due date")
+@click.option("--note", "-n", default=None, help="Note text")
 @click.option("--category", "-c", default=None, help="Category")
-@click.option("--project", default=None, help="Project")
+@click.option("--project", "-j", default=None, help="Project")
 def todo_add(title, priority, due, note, category, project):
     """Add a new todo."""
     args: dict = {"title": title, "priority": priority}
@@ -405,11 +405,11 @@ def todo_done(todo_id):
 @todo.command("edit")
 @click.argument("todo_id")
 @click.option("--priority", "-p", type=int, default=None, help="Priority (1-5)")
-@click.option("--title", default=None, help="Title")
-@click.option("--note", default=None, help="Note")
+@click.option("--title", "-t", default=None, help="Title")
+@click.option("--note", "-n", default=None, help="Note")
 @click.option("--category", "-c", default=None, help="Category")
-@click.option("--project", default=None, help="Project")
-@click.option("--due", default=None, help="Due date")
+@click.option("--project", "-j", default=None, help="Project")
+@click.option("--due", "-d", default=None, help="Due date")
 def todo_edit(todo_id, priority, title, note, category, project, due):
     """Edit a todo."""
     args: dict = {"id": todo_id}
