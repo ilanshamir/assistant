@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 from typing import Any
 
@@ -38,10 +39,11 @@ class Daemon:
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
+        self._config_path = config.data_dir / "config.json"
         self._db: Database | None = None
         self._engine: TriageEngine | None = None
         self._server: SocketServer | None = None
-        self._connectors: list[BaseConnector] = []
+        self._connectors: dict[str, BaseConnector] = {}
         self._running = False
 
     async def start(self) -> None:
@@ -60,20 +62,14 @@ class Daemon:
             )
 
         # Initialize connectors from source configs
-        for source_name, source_config in self.config.sources.items():
-            if not source_config.get("enabled", True):
-                continue
-            source_type = source_config.get("type", "")
-            try:
-                connector = self._create_connector(source_name, source_config)
-                if connector:
-                    self._connectors.append(connector)
-                    logger.info("Initialized connector: %s (%s)", source_name, source_type)
-            except Exception:
-                logger.exception("Failed to initialize connector: %s", source_name)
+        self._reload_connectors()
 
         # Start socket server
-        handler = RequestHandler(self.config, self._db)
+        handler = RequestHandler(
+            self.config, self._db,
+            api_key=self.config.anthropic_api_key,
+            model=self.config.anthropic_model,
+        )
         self._server = SocketServer(handler, self.config.socket_path)
         await self._server.start()
 
@@ -126,6 +122,43 @@ class Daemon:
             logger.warning("Unknown source type: %s for %s", source_type, source_name)
             return None
 
+    def _reload_connectors(self) -> None:
+        """Re-read config from disk and reconcile connectors."""
+        if self._config_path.exists():
+            try:
+                new_config = AppConfig.from_file(self._config_path)
+                # Preserve runtime-only fields
+                api_key = self.config.anthropic_api_key
+                new_config.anthropic_api_key = api_key
+                self.config.sources = new_config.sources
+            except Exception:
+                logger.exception("Failed to reload config")
+                return
+
+        # Determine desired enabled sources
+        desired: dict[str, dict] = {}
+        for name, src_cfg in self.config.sources.items():
+            if src_cfg.get("enabled", True):
+                desired[name] = src_cfg
+
+        # Remove connectors for sources that were deleted or disabled
+        for name in list(self._connectors):
+            if name not in desired:
+                del self._connectors[name]
+                logger.info("Removed connector: %s", name)
+
+        # Add connectors for new sources
+        for name, src_cfg in desired.items():
+            if name not in self._connectors:
+                source_type = src_cfg.get("type", "")
+                try:
+                    connector = self._create_connector(name, src_cfg)
+                    if connector:
+                        self._connectors[name] = connector
+                        logger.info("Initialized connector: %s (%s)", name, source_type)
+                except Exception:
+                    logger.exception("Failed to initialize connector: %s", name)
+
     async def stop(self) -> None:
         """Stop the server and close the database."""
         self._running = False
@@ -139,6 +172,7 @@ class Daemon:
         """Poll all sources, run triage, then sleep."""
         while self._running:
             try:
+                self._reload_connectors()
                 await self._poll_all_sources()
                 await self._run_triage()
             except Exception:
@@ -157,7 +191,7 @@ class Daemon:
     async def _poll_all_sources(self) -> None:
         """Iterate connectors, fetch new items, store in DB."""
         assert self._db is not None
-        for connector in self._connectors:
+        for connector in self._connectors.values():
             source_name = connector.source_name
             try:
                 # Get current sync cursor
@@ -229,9 +263,16 @@ class Daemon:
             # Store triage result (3 args: item_id, priority, action)
             await self._db.update_item_triage(item_id, priority, action)
 
-            # Create todo if suggested
-            if result.get("create_todo") and result.get("todo_title"):
-                todo_id = await self._db.insert_todo(title=result["todo_title"], priority=priority)
+            # Create todo(s) if suggested
+            todos_list = result.get("todos") or []
+            if not todos_list and result.get("create_todo") and result.get("todo_title"):
+                todos_list = [{"title": result["todo_title"], "priority": priority}]
+            for todo_spec in todos_list:
+                todo_title = todo_spec.get("title")
+                if not todo_title:
+                    continue
+                todo_prio = todo_spec.get("priority", priority)
+                todo_id = await self._db.insert_todo(title=todo_title, priority=todo_prio)
                 await self._db.link_todo(todo_id, item_id)
 
             # Store draft if present
@@ -257,6 +298,11 @@ def run_daemon(config: AppConfig) -> None:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
 
+    # Always check env var for API key
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or config.anthropic_api_key
+    if api_key:
+        config.anthropic_api_key = api_key
+
     daemon = Daemon(config)
 
     loop = asyncio.new_event_loop()
@@ -277,16 +323,9 @@ def run_daemon(config: AppConfig) -> None:
 
 
 if __name__ == "__main__":
-    import os
-
     config = AppConfig()
     config_path = config.data_dir / "config.json"
     if config_path.exists():
         config = AppConfig.from_file(config_path)
-
-    # Load API key from environment or config
-    api_key = os.environ.get("ANTHROPIC_API_KEY") or config.anthropic_api_key
-    if api_key:
-        config.anthropic_api_key = api_key
 
     run_daemon(config)

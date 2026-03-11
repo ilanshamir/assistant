@@ -17,9 +17,11 @@ logger = logging.getLogger(__name__)
 class RequestHandler:
     """Handles JSON requests from the CLI."""
 
-    def __init__(self, config: AppConfig, db: Database) -> None:
+    def __init__(self, config: AppConfig, db: Database, api_key: str | None = None, model: str = "claude-sonnet-4-20250514") -> None:
         self.config = config
         self.db = db
+        self._api_key = api_key
+        self._model = model
 
     def parse_request(self, data: str) -> dict | None:
         """Parse JSON request string, return None on failure."""
@@ -248,12 +250,57 @@ class RequestHandler:
         return {"ok": True, "events": items}
 
     async def _cmd_ask(self, args: dict) -> dict:
-        """Placeholder for AI ask command."""
-        return {"ok": False, "error": "Ask requires the AI engine (not yet available in this context)"}
+        """Answer a user question using AI with full context."""
+        question = args.get("question")
+        if not question:
+            return {"ok": False, "error": "Missing 'question' argument"}
+        if not self._api_key:
+            return {"ok": False, "error": "No API key configured. Set ANTHROPIC_API_KEY or configure it in ~/.assistant/config.json"}
+
+        from aa.ai.ask import AskEngine
+
+        engine = AskEngine(api_key=self._api_key, model=self._model)
+
+        # Build context from DB
+        todos = await self.db.list_todos(status="pending")
+        inbox = await self.db.list_items(limit=20)
+        calendar = await self.db.list_items(source="calendar")
+
+        context = {
+            "todos": todos,
+            "inbox": inbox,
+            "calendar": calendar,
+        }
+
+        answer = await engine.ask(question, context)
+        return {"ok": True, "answer": answer}
 
     async def _cmd_reply(self, args: dict) -> dict:
-        """Placeholder for AI reply command."""
-        return {"ok": False, "error": "Reply requires the AI engine (not yet available in this context)"}
+        """Generate a draft reply to an item using AI."""
+        raw_id = args.get("id")
+        if not raw_id:
+            return {"ok": False, "error": "Missing 'id' argument"}
+        if not self._api_key:
+            return {"ok": False, "error": "No API key configured. Set ANTHROPIC_API_KEY or configure it in ~/.assistant/config.json"}
+
+        item_id = await self._resolve_item(raw_id)
+        if not item_id:
+            return {"ok": False, "error": f"Item not found: {raw_id}"}
+
+        item = await self.db.get_item(item_id)
+        if not item:
+            return {"ok": False, "error": f"Item not found: {raw_id}"}
+
+        from aa.ai.drafts import DraftGenerator
+
+        generator = DraftGenerator(api_key=self._api_key, model=self._model)
+        instruction = args.get("instruction")
+        draft_text = await generator.generate_draft(item, user_instruction=instruction)
+
+        # Store the draft
+        draft_id = await self.db.insert_draft(item_id, draft_text)
+
+        return {"ok": True, "draft": draft_text, "draft_id": draft_id}
 
 
 class SocketServer:

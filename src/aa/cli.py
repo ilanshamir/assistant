@@ -108,9 +108,8 @@ def main(ctx):
 # Daemon control
 # ---------------------------------------------------------------------------
 
-@main.command()
-def start():
-    """Start the daemon as a background process."""
+def start_daemon() -> str:
+    """Start the daemon as a background process. Returns a status message."""
     config = _config
     config.ensure_dirs()
 
@@ -119,8 +118,7 @@ def start():
         pid = int(pid_file.read_text().strip())
         try:
             os.kill(pid, 0)
-            click.echo(f"Daemon already running (PID {pid})")
-            return
+            return f"Daemon already running (PID {pid})"
         except OSError:
             pid_file.unlink()
 
@@ -135,23 +133,34 @@ def start():
         start_new_session=True,
     )
     pid_file.write_text(str(proc.pid))
-    click.echo(f"Daemon started (PID {proc.pid})")
+    return f"Daemon started (PID {proc.pid})"
+
+
+def stop_daemon() -> str:
+    """Stop the daemon. Returns a status message."""
+    pid_file = _config.data_dir / "daemon.pid"
+    if not pid_file.exists():
+        return "Daemon is not running."
+    pid = int(pid_file.read_text().strip())
+    try:
+        os.kill(pid, signal.SIGTERM)
+        msg = f"Stopped daemon (PID {pid})"
+    except OSError:
+        msg = "Daemon process not found."
+    pid_file.unlink(missing_ok=True)
+    return msg
+
+
+@main.command()
+def start():
+    """Start the daemon as a background process."""
+    click.echo(start_daemon())
 
 
 @main.command()
 def stop():
     """Stop the daemon."""
-    pid_file = _config.data_dir / "daemon.pid"
-    if not pid_file.exists():
-        click.echo("Daemon is not running.")
-        return
-    pid = int(pid_file.read_text().strip())
-    try:
-        os.kill(pid, signal.SIGTERM)
-        click.echo(f"Stopped daemon (PID {pid})")
-    except OSError:
-        click.echo("Daemon process not found.")
-    pid_file.unlink(missing_ok=True)
+    click.echo(stop_daemon())
 
 
 @main.command()
@@ -174,7 +183,7 @@ def status():
     for name, state in sources.items():
         src_status = state.get("status", "unknown")
         src_color = "green" if src_status == "ok" else ("red" if src_status == "error" else "yellow")
-        last = state.get("last_sync", "never")
+        last = state.get("updated_at") or state.get("last_sync") or "never"
         click.echo(f"  {truncate(name, 15):15s}  {click.style(src_status, fg=src_color):10s}  last: {last}")
 
 
@@ -556,6 +565,147 @@ def rule_rm(rule_id):
 VALID_SOURCE_TYPES = ("gmail", "outlook", "slack", "mattermost", "files")
 
 
+def list_sources() -> list[str]:
+    """List configured sources. Returns lines of output."""
+    config = _config
+    sources = config.sources
+    if not sources:
+        return ["No sources configured."]
+
+    # Try to get sync state from the daemon
+    sync_states: dict = {}
+    try:
+        resp = send({"command": "status", "args": {}})
+        if resp.get("ok"):
+            sync_states = resp.get("sources", {})
+    except Exception:
+        pass
+
+    lines = []
+    for name, src in sources.items():
+        src_type = src.get("type", "unknown")
+        status = "enabled" if src.get("enabled", True) else "disabled"
+        parts = f"  {name:20s} {src_type:12s} {status}"
+        token_file = src.get("token_path") or src.get("token_cache_path")
+        if token_file:
+            from pathlib import Path as _P
+            if _P(token_file).expanduser().exists():
+                parts += "   token: valid"
+        state = sync_states.get(name, {})
+        last_sync = state.get("updated_at") or state.get("last_sync")
+        if last_sync:
+            parts += f"   last sync: {last_sync}"
+        else:
+            parts += "   last sync: never"
+        lines.append(parts)
+    return lines
+
+
+def add_source(
+    name: str,
+    source_type: str,
+    *,
+    credentials_file: str | None = None,
+    client_id: str | None = None,
+    tenant_id: str | None = None,
+    token: str | None = None,
+    url: str | None = None,
+    channels: str | None = None,
+    path: str | None = None,
+) -> str:
+    """Add or configure a source. Returns a status message or raises ValueError."""
+    config = _config
+
+    if source_type not in VALID_SOURCE_TYPES:
+        raise ValueError(f"Invalid source type: {source_type}. Must be one of: {', '.join(VALID_SOURCE_TYPES)}")
+
+    if source_type == "gmail":
+        if not credentials_file:
+            raise ValueError("--credentials-file is required for gmail sources")
+        token_path = str(config.credentials_dir / f"{name}.token.json")
+        source_cfg = {
+            "type": "gmail",
+            "credentials_file": credentials_file,
+            "token_path": token_path,
+            "enabled": True,
+        }
+        msg = f"Source '{name}' (gmail) added. OAuth will run when the daemon starts."
+
+    elif source_type == "outlook":
+        if not client_id:
+            raise ValueError("--client-id is required for outlook sources")
+        token_cache_path = str(config.credentials_dir / f"{name}.token.json")
+        source_cfg = {
+            "type": "outlook",
+            "client_id": client_id,
+            "tenant_id": tenant_id or "common",
+            "token_cache_path": token_cache_path,
+            "enabled": True,
+        }
+        msg = f"Source '{name}' (outlook) added. OAuth will run when the daemon starts."
+
+    elif source_type == "slack":
+        if not token:
+            raise ValueError("--token is required for slack sources")
+        watched = [ch.strip() for ch in channels.split(",")] if channels else []
+        source_cfg = {
+            "type": "slack",
+            "token": token,
+            "watched_channels": watched,
+            "enabled": True,
+        }
+        msg = f"Source '{name}' (slack) added."
+
+    elif source_type == "mattermost":
+        if not url:
+            raise ValueError("--url is required for mattermost sources")
+        if not token:
+            raise ValueError("--token is required for mattermost sources")
+        watched = [ch.strip() for ch in channels.split(",")] if channels else []
+        source_cfg = {
+            "type": "mattermost",
+            "url": url,
+            "token": token,
+            "watched_channels": watched,
+            "enabled": True,
+        }
+        msg = f"Source '{name}' (mattermost) added."
+
+    elif source_type == "files":
+        if not path:
+            raise ValueError("--path is required for files sources")
+        source_cfg = {
+            "type": "files",
+            "path": path,
+            "enabled": True,
+        }
+        msg = f"Source '{name}' (files) added."
+
+    config.ensure_dirs()
+    config.sources[name] = source_cfg
+    config.save()
+    return msg
+
+
+def remove_source(name: str) -> str:
+    """Remove a source. Returns a status message or raises ValueError."""
+    config = _config
+    if name not in config.sources:
+        raise ValueError(f"Source '{name}' not found.")
+
+    src = config.sources.pop(name)
+
+    token_file = src.get("token_path") or src.get("token_cache_path")
+    if token_file:
+        from pathlib import Path as _P
+        p = _P(token_file).expanduser()
+        if p.exists():
+            p.unlink()
+
+    config.save()
+    return f"Source '{name}' removed."
+
+
 @main.group(invoke_without_command=True)
 @click.pass_context
 def source(ctx):
@@ -580,120 +730,34 @@ main.add_command(source)
 @click.option("--path", default=None, help="File or directory path (files)")
 def source_add(name, source_type, credentials_file, client_id, tenant_id, token, url, channels, path):
     """Add or configure a source."""
-    config = _config
-
-    # Validate required options per type
-    if source_type == "gmail":
-        if not credentials_file:
-            raise click.UsageError("--credentials-file is required for gmail sources")
-        token_path = str(config.credentials_dir / f"{name}.token.json")
-        source_cfg = {
-            "type": "gmail",
-            "credentials_file": credentials_file,
-            "token_path": token_path,
-            "enabled": True,
-        }
-        msg = f"Source '{name}' (gmail) added. OAuth will run when the daemon starts."
-
-    elif source_type == "outlook":
-        if not client_id:
-            raise click.UsageError("--client-id is required for outlook sources")
-        token_cache_path = str(config.credentials_dir / f"{name}.token.json")
-        source_cfg = {
-            "type": "outlook",
-            "client_id": client_id,
-            "tenant_id": tenant_id or "common",
-            "token_cache_path": token_cache_path,
-            "enabled": True,
-        }
-        msg = f"Source '{name}' (outlook) added. OAuth will run when the daemon starts."
-
-    elif source_type == "slack":
-        if not token:
-            raise click.UsageError("--token is required for slack sources")
-        watched = [ch.strip() for ch in channels.split(",")] if channels else []
-        source_cfg = {
-            "type": "slack",
-            "token": token,
-            "watched_channels": watched,
-            "enabled": True,
-        }
-        msg = f"Source '{name}' (slack) added."
-
-    elif source_type == "mattermost":
-        if not url:
-            raise click.UsageError("--url is required for mattermost sources")
-        if not token:
-            raise click.UsageError("--token is required for mattermost sources")
-        watched = [ch.strip() for ch in channels.split(",")] if channels else []
-        source_cfg = {
-            "type": "mattermost",
-            "url": url,
-            "token": token,
-            "watched_channels": watched,
-            "enabled": True,
-        }
-        msg = f"Source '{name}' (mattermost) added."
-
-    elif source_type == "files":
-        if not path:
-            raise click.UsageError("--path is required for files sources")
-        source_cfg = {
-            "type": "files",
-            "path": path,
-            "enabled": True,
-        }
-        msg = f"Source '{name}' (files) added."
-
-    config.ensure_dirs()
-    config.sources[name] = source_cfg
-    config.save()
-    click.echo(msg)
+    try:
+        msg = add_source(
+            name, source_type,
+            credentials_file=credentials_file, client_id=client_id,
+            tenant_id=tenant_id, token=token, url=url,
+            channels=channels, path=path,
+        )
+        click.echo(msg)
+    except ValueError as e:
+        raise click.UsageError(str(e))
 
 
 @source.command("list")
 def source_list():
     """List configured sources."""
-    config = _config
-    sources = config.sources
-    if not sources:
-        click.echo("No sources configured.")
-        return
-
-    for name, src in sources.items():
-        src_type = src.get("type", "unknown")
-        status = "enabled" if src.get("enabled", True) else "disabled"
-        parts = f"  {name:20s} {src_type:12s} {status}"
-        # For OAuth sources, check if token file exists
-        token_file = src.get("token_path") or src.get("token_cache_path")
-        if token_file:
-            from pathlib import Path as _P
-            if _P(token_file).expanduser().exists():
-                parts += "   token: valid"
-        click.echo(parts)
+    for line in list_sources():
+        click.echo(line)
 
 
 @source.command("rm")
 @click.argument("name")
 def source_rm(name):
     """Remove a source."""
-    config = _config
-    if name not in config.sources:
-        click.echo(click.style(f"Source '{name}' not found.", fg="red"))
+    try:
+        click.echo(remove_source(name))
+    except ValueError as e:
+        click.echo(click.style(str(e), fg="red"))
         raise SystemExit(1)
-
-    src = config.sources.pop(name)
-
-    # Clean up credential files for OAuth sources
-    token_file = src.get("token_path") or src.get("token_cache_path")
-    if token_file:
-        from pathlib import Path as _P
-        p = _P(token_file).expanduser()
-        if p.exists():
-            p.unlink()
-
-    config.save()
-    click.echo(f"Source '{name}' removed.")
 
 
 if __name__ == "__main__":

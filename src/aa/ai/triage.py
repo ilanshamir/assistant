@@ -17,9 +17,17 @@ For EACH item, return a JSON object with these fields:
 - "priority": integer 1-5 (1 = most urgent, 5 = least urgent)
 - "summary": a single-line summary of what the item is about
 - "action": one of "reply", "schedule", "delegate", "fyi", or "ignore"
-- "create_todo": boolean — whether a new to-do should be created
-- "todo_title": string or null — title for the to-do if create_todo is true
+- "create_todo": boolean — whether new to-do(s) should be created
+- "todo_title": string or null — title for the to-do if create_todo is true (single todo)
+- "todos": list or null — for items containing multiple action items (e.g. meeting notes), \
+a list of {"title": string, "priority": int} objects. Each becomes a separate to-do. \
+Use this instead of todo_title when the item contains multiple distinct tasks.
 - "draft": string or null — a draft reply if the action is "reply"
+
+IMPORTANT: When an item is a notes or document type (e.g. meeting notes, a to-do list file), \
+carefully extract ALL individual action items and return them in the "todos" list. \
+Do not collapse multiple tasks into a single to-do. Skip items already marked as done \
+(e.g. prefixed with [done]) and skip items that duplicate existing active todos.
 
 IMPORTANT: Pay close attention to due dates on existing todos. If an incoming item \
 is related to a todo that is due soon, elevate its priority accordingly. Items \

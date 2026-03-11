@@ -73,7 +73,7 @@ class AAShell(cmd.Cmd):
     # ------------------------------------------------------------------
 
     def do_inbox(self, arg: str) -> None:
-        """List inbox items. Usage: inbox [--source SOURCE]"""
+        """List inbox items. Usage: inbox [--source/-s SOURCE]"""
         try:
             tokens = shlex.split(arg)
         except ValueError:
@@ -169,7 +169,11 @@ class AAShell(cmd.Cmd):
         self._print("Item dismissed.")
 
     def do_todo(self, arg: str) -> None:
-        """Manage todos. Usage: todo [list|add|done|edit|rm|link] [args]"""
+        """Manage todos. Usage: todo [list|add|done|edit|rm|link] [args]
+        list: [--all] [--category/-c CAT] [--project/-j PROJ] [--priority/-p N] [--urgent/-u] [--keyword/-k TEXT] [--due/-d DATE]
+        add:  TITLE [--priority/-p N] [--due/-d DATE] [--note/-n TEXT] [--category/-c CAT] [--project/-j PROJ]
+        edit: TODO_ID [--title/-t T] [--priority/-p N] [--note/-n TEXT] [--category/-c CAT] [--project/-j PROJ] [--due/-d DATE]
+        done: TODO_ID | rm: TODO_ID | link: TODO_ID ITEM_ID"""
         try:
             tokens = shlex.split(arg)
         except ValueError:
@@ -246,7 +250,7 @@ class AAShell(cmd.Cmd):
                 "--project": "project", "-j": "project",
             })
             if not positional:
-                self._print("Usage: todo add TITLE [--priority N] [--due DATE]")
+                self._print("Usage: todo add TITLE [--priority/-p N] [--due/-d DATE] [--note/-n TEXT] [--category/-c CAT] [--project/-j PROJ]")
                 return
             title = " ".join(positional)
             args = {"title": title, "priority": int(flags.get("priority", 3))}
@@ -276,7 +280,7 @@ class AAShell(cmd.Cmd):
 
         elif tokens[0] == "edit":
             if len(tokens) < 2:
-                self._print("Usage: todo edit TODO_ID [--title T] [--priority N]")
+                self._print("Usage: todo edit TODO_ID [--title/-t T] [--priority/-p N] [--note/-n TEXT] [--category/-c CAT] [--project/-j PROJ] [--due/-d DATE]")
                 return
             todo_id = tokens[1]
             rest = tokens[2:]
@@ -404,8 +408,62 @@ class AAShell(cmd.Cmd):
             self._print(f"Unknown rule subcommand: {tokens[0]}")
 
     def do_source(self, arg: str) -> None:
-        """Manage sources. Usage: source [list|add|rm]"""
-        self._print("Use the CLI for source management: aa source [list|add|rm]")
+        """Manage sources. Usage: source [list|add|rm] [args]"""
+        from aa.cli import list_sources, add_source, remove_source, VALID_SOURCE_TYPES
+
+        try:
+            tokens = shlex.split(arg)
+        except ValueError:
+            tokens = arg.split()
+
+        if not tokens or tokens[0] == "list":
+            for line in list_sources():
+                self._print(line)
+
+        elif tokens[0] == "add":
+            rest = tokens[1:]
+            flags, positional = self._parse_flags(rest, {
+                "--type": "type", "-t": "type",
+                "--credentials-file": "credentials_file",
+                "--client-id": "client_id",
+                "--tenant-id": "tenant_id",
+                "--token": "token",
+                "--url": "url",
+                "--channels": "channels",
+                "--path": "path",
+            })
+            if not positional or not flags.get("type"):
+                self._print(
+                    "Usage: source add NAME --type TYPE [options]\n"
+                    f"  Types: {', '.join(VALID_SOURCE_TYPES)}"
+                )
+                return
+            try:
+                msg = add_source(
+                    positional[0], flags["type"],
+                    credentials_file=flags.get("credentials_file"),
+                    client_id=flags.get("client_id"),
+                    tenant_id=flags.get("tenant_id"),
+                    token=flags.get("token"),
+                    url=flags.get("url"),
+                    channels=flags.get("channels"),
+                    path=flags.get("path"),
+                )
+                self._print(msg)
+            except ValueError as e:
+                self._print(f"Error: {e}")
+
+        elif tokens[0] == "rm":
+            if len(tokens) < 2:
+                self._print("Usage: source rm NAME")
+                return
+            try:
+                self._print(remove_source(tokens[1]))
+            except ValueError as e:
+                self._print(f"Error: {e}")
+
+        else:
+            self._print(f"Unknown source subcommand: {tokens[0]}")
 
     def do_status(self, arg: str) -> None:
         """Show daemon health."""
@@ -421,16 +479,18 @@ class AAShell(cmd.Cmd):
             return
         for name, state in sources.items():
             src_status = state.get("status", "unknown")
-            last = state.get("last_sync", "never")
+            last = state.get("updated_at") or state.get("last_sync") or "never"
             self._print(f"  {truncate(name, 15):15s}  {src_status:10s}  last: {last}")
 
     def do_start(self, arg: str) -> None:
         """Start the daemon."""
-        self._print("Use the CLI to start the daemon: aa start")
+        from aa.cli import start_daemon
+        self._print(start_daemon())
 
     def do_stop(self, arg: str) -> None:
         """Stop the daemon."""
-        self._print("Use the CLI to stop the daemon: aa stop")
+        from aa.cli import stop_daemon
+        self._print(stop_daemon())
 
     def do_quit(self, arg: str) -> bool:
         """Exit the shell."""
@@ -448,24 +508,31 @@ class AAShell(cmd.Cmd):
     def do_help(self, arg: str) -> None:
         """Show available commands."""
         commands = [
-            ("inbox [--source S]", "List inbox items"),
+            ("inbox [--source/-s S]", "List inbox items"),
             ("show ITEM_ID", "Show item detail"),
             ("reply ITEM_ID", "Request draft response"),
             ("reprioritize ITEM_ID PRI", "Change priority"),
             ("dismiss ITEM_ID", "Dismiss item"),
-            ("todo [list|add|done|edit|rm|link]", "Manage todos"),
+            ("todo list [--all] [--category/-c] ...", "List todos"),
+            ("todo add TITLE [--priority/-p N] ...", "Add a todo"),
+            ("todo done TODO_ID", "Mark todo as done"),
+            ("todo edit TODO_ID [--title/-t] ...", "Edit a todo"),
+            ("todo rm TODO_ID", "Remove a todo"),
+            ("todo link TODO_ID ITEM_ID", "Link todo to item"),
             ("calendar [when]", "Show calendar events"),
             ("ask QUESTION", "Ask the AI assistant"),
             ("rule [list|add|rm]", "Manage triage rules"),
-            ("source [list|add|rm]", "Manage sources (via CLI)"),
+            ("source list", "List sources"),
+            ("source add NAME --type/-t TYPE ...", "Add a source"),
+            ("source rm NAME", "Remove a source"),
             ("status", "Show daemon health"),
-            ("start", "Start daemon (via CLI)"),
-            ("stop", "Stop daemon (via CLI)"),
+            ("start", "Start daemon"),
+            ("stop", "Stop daemon"),
             ("quit / exit", "Exit shell"),
         ]
         self._print("Available commands:")
         for name, desc in commands:
-            self._print(f"  {name:35s}  {desc}")
+            self._print(f"  {name:40s}  {desc}")
 
     # ------------------------------------------------------------------
     # Tab completion
