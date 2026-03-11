@@ -235,3 +235,24 @@ async def test_items_untriaged(db):
     untriaged = await db.get_untriaged_items()
     assert len(untriaged) == 1
     assert untriaged[0]["id"] == "untriaged-1"
+
+
+@pytest.mark.asyncio
+async def test_resolve_id_exact(db):
+    todo_id = await db.insert_todo(title="Test", priority=3)
+    resolved = await db.resolve_id("todos", todo_id)
+    assert resolved == todo_id
+
+
+@pytest.mark.asyncio
+async def test_resolve_id_prefix(db):
+    todo_id = await db.insert_todo(title="Test", priority=3)
+    prefix = todo_id[:8]
+    resolved = await db.resolve_id("todos", prefix)
+    assert resolved == todo_id
+
+
+@pytest.mark.asyncio
+async def test_resolve_id_not_found(db):
+    resolved = await db.resolve_id("todos", "nonexistent")
+    assert resolved is None

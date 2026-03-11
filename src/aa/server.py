@@ -77,14 +77,25 @@ class RequestHandler:
         items = await self.db.list_items(source=source)
         return {"ok": True, "items": items}
 
+    async def _resolve_item(self, raw_id: str) -> str | None:
+        """Resolve a partial item ID to a full ID."""
+        return await self.db.resolve_id("items", raw_id)
+
+    async def _resolve_todo(self, raw_id: str) -> str | None:
+        """Resolve a partial todo ID to a full ID."""
+        return await self.db.resolve_id("todos", raw_id)
+
     async def _cmd_show(self, args: dict) -> dict:
         """Get single item by id."""
-        item_id = args.get("id")
-        if not item_id:
+        raw_id = args.get("id")
+        if not raw_id:
             return {"ok": False, "error": "Missing 'id' argument"}
+        item_id = await self._resolve_item(raw_id)
+        if not item_id:
+            return {"ok": False, "error": f"Item not found: {raw_id}"}
         item = await self.db.get_item(item_id)
         if item is None:
-            return {"ok": False, "error": f"Item not found: {item_id}"}
+            return {"ok": False, "error": f"Item not found: {raw_id}"}
         return {"ok": True, "item": item}
 
     async def _cmd_todo(self, args: dict) -> dict:
@@ -115,17 +126,23 @@ class RequestHandler:
 
     async def _cmd_todo_done(self, args: dict) -> dict:
         """Mark a todo as done."""
-        todo_id = args.get("id")
-        if not todo_id:
+        raw_id = args.get("id")
+        if not raw_id:
             return {"ok": False, "error": "Missing 'id' argument"}
+        todo_id = await self._resolve_todo(raw_id)
+        if not todo_id:
+            return {"ok": False, "error": f"Todo not found: {raw_id}"}
         await self.db.update_todo(todo_id, status="done")
         return {"ok": True}
 
     async def _cmd_todo_edit(self, args: dict) -> dict:
         """Update todo fields."""
-        todo_id = args.get("id")
-        if not todo_id:
+        raw_id = args.get("id")
+        if not raw_id:
             return {"ok": False, "error": "Missing 'id' argument"}
+        todo_id = await self._resolve_todo(raw_id)
+        if not todo_id:
+            return {"ok": False, "error": f"Todo not found: {raw_id}"}
         fields = {k: v for k, v in args.items() if k != "id"}
         if not fields:
             return {"ok": False, "error": "No fields to update"}
@@ -134,30 +151,40 @@ class RequestHandler:
 
     async def _cmd_todo_rm(self, args: dict) -> dict:
         """Delete a todo."""
-        todo_id = args.get("id")
-        if not todo_id:
+        raw_id = args.get("id")
+        if not raw_id:
             return {"ok": False, "error": "Missing 'id' argument"}
+        todo_id = await self._resolve_todo(raw_id)
+        if not todo_id:
+            return {"ok": False, "error": f"Todo not found: {raw_id}"}
         await self.db.delete_todo(todo_id)
         return {"ok": True}
 
     async def _cmd_todo_link(self, args: dict) -> dict:
         """Link a todo to an item."""
-        todo_id = args.get("todo_id")
-        item_id = args.get("item_id")
-        if not todo_id or not item_id:
+        raw_todo = args.get("todo_id")
+        raw_item = args.get("item_id")
+        if not raw_todo or not raw_item:
             return {"ok": False, "error": "Missing 'todo_id' or 'item_id' argument"}
+        todo_id = await self._resolve_todo(raw_todo)
+        if not todo_id:
+            return {"ok": False, "error": f"Todo not found: {raw_todo}"}
+        item_id = await self._resolve_item(raw_item)
+        if not item_id:
+            return {"ok": False, "error": f"Item not found: {raw_item}"}
         link_id = await self.db.link_todo(todo_id, item_id)
         return {"ok": True, "id": link_id}
 
     async def _cmd_reprioritize(self, args: dict) -> dict:
         """Change item priority and record feedback."""
-        item_id = args.get("id")
+        raw_id = args.get("id")
         priority = args.get("priority")
-        if not item_id or priority is None:
+        if not raw_id or priority is None:
             return {"ok": False, "error": "Missing 'id' or 'priority' argument"}
+        item_id = await self._resolve_item(raw_id)
+        if not item_id:
+            return {"ok": False, "error": f"Item not found: {raw_id}"}
         item = await self.db.get_item(item_id)
-        if item is None:
-            return {"ok": False, "error": f"Item not found: {item_id}"}
         original_priority = item.get("priority")
         original_action = item.get("action")
         await self.db.update_item_triage(item_id, priority, original_action or "fyi")
@@ -172,12 +199,13 @@ class RequestHandler:
 
     async def _cmd_dismiss(self, args: dict) -> dict:
         """Set item to priority 5/ignore and record feedback."""
-        item_id = args.get("id")
-        if not item_id:
+        raw_id = args.get("id")
+        if not raw_id:
             return {"ok": False, "error": "Missing 'id' argument"}
+        item_id = await self._resolve_item(raw_id)
+        if not item_id:
+            return {"ok": False, "error": f"Item not found: {raw_id}"}
         item = await self.db.get_item(item_id)
-        if item is None:
-            return {"ok": False, "error": f"Item not found: {item_id}"}
         original_priority = item.get("priority")
         original_action = item.get("action")
         await self.db.update_item_triage(item_id, 5, "ignore")
@@ -205,9 +233,12 @@ class RequestHandler:
 
     async def _cmd_rule_rm(self, args: dict) -> dict:
         """Delete a triage rule."""
-        rule_id = args.get("id")
-        if not rule_id:
+        raw_id = args.get("id")
+        if not raw_id:
             return {"ok": False, "error": "Missing 'id' argument"}
+        rule_id = await self.db.resolve_id("triage_rules", raw_id)
+        if not rule_id:
+            return {"ok": False, "error": f"Rule not found: {raw_id}"}
         await self.db.delete_rule(rule_id)
         return {"ok": True}
 

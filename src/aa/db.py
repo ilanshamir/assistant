@@ -124,6 +124,26 @@ class Database:
         assert self._db is not None, "Database not initialized"
         return self._db
 
+    # --- ID resolution ---
+
+    async def resolve_id(self, table: str, prefix: str) -> str | None:
+        """Resolve a partial ID prefix to a full ID. Returns None if no match or ambiguous."""
+        # Try exact match first
+        cursor = await self.db.execute(
+            f"SELECT id FROM {table} WHERE id = ?", (prefix,)
+        )
+        row = await cursor.fetchone()
+        if row:
+            return row["id"]
+        # Try prefix match
+        cursor = await self.db.execute(
+            f"SELECT id FROM {table} WHERE id LIKE ?", (prefix + "%",)
+        )
+        rows = await cursor.fetchall()
+        if len(rows) == 1:
+            return rows[0]["id"]
+        return None
+
     # --- Tables ---
 
     async def list_tables(self) -> list[str]:
