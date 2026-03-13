@@ -110,7 +110,9 @@ class RequestHandler:
 
     async def _cmd_todo(self, args: dict) -> dict:
         """List todos with filters."""
+        status = None if args.get("all") else "pending"
         todos = await self.db.list_todos(
+            status=status,
             category=args.get("category"),
             project=args.get("project"),
             priority=args.get("priority"),
