@@ -40,6 +40,7 @@ class RequestHandler:
             "inbox": self._cmd_inbox,
             "show": self._cmd_show,
             "todo": self._cmd_todo,
+            "todo_show": self._cmd_todo_show,
             "todo_add": self._cmd_todo_add,
             "todo_done": self._cmd_todo_done,
             "todo_edit": self._cmd_todo_edit,
@@ -98,7 +99,14 @@ class RequestHandler:
         item = await self.db.get_item(item_id)
         if item is None:
             return {"ok": False, "error": f"Item not found: {raw_id}"}
-        return {"ok": True, "item": item}
+        # Fetch linked todos
+        links = await self.db.get_item_links(item_id)
+        linked_todos = []
+        for link in links:
+            todo = await self.db.get_todo(link["todo_id"])
+            if todo:
+                linked_todos.append(todo)
+        return {"ok": True, "item": item, "linked_todos": linked_todos}
 
     async def _cmd_todo(self, args: dict) -> dict:
         """List todos with filters."""
@@ -112,6 +120,26 @@ class RequestHandler:
         )
         return {"ok": True, "todos": todos}
 
+    async def _cmd_todo_show(self, args: dict) -> dict:
+        """Get single todo by id."""
+        raw_id = args.get("id")
+        if not raw_id:
+            return {"ok": False, "error": "Missing 'id' argument"}
+        todo_id = await self._resolve_todo(raw_id)
+        if not todo_id:
+            return {"ok": False, "error": f"Todo not found: {raw_id}"}
+        todo = await self.db.get_todo(todo_id)
+        if todo is None:
+            return {"ok": False, "error": f"Todo not found: {raw_id}"}
+        # Fetch linked items
+        links = await self.db.get_todo_links(todo_id)
+        linked_items = []
+        for link in links:
+            item = await self.db.get_item(link["item_id"])
+            if item:
+                linked_items.append(item)
+        return {"ok": True, "todo": todo, "linked_items": linked_items}
+
     async def _cmd_todo_add(self, args: dict) -> dict:
         """Create a todo."""
         title = args.get("title")
@@ -123,6 +151,7 @@ class RequestHandler:
             category=args.get("category"),
             project=args.get("project"),
             due_date=args.get("due_date"),
+            details=args.get("details"),
         )
         return {"ok": True, "id": todo_id}
 

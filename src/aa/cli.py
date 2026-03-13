@@ -238,6 +238,13 @@ def show(item_id):
     click.echo(f"Priority: {priority_label(item.get('priority'))}")
     click.echo(f"Action:   {item.get('action', '')}")
     click.echo(f"Received: {item.get('received_at', '')}")
+    linked_todos = resp.get("linked_todos", [])
+    if linked_todos:
+        click.echo(f"\nLinked todos:")
+        for t in linked_todos:
+            p = priority_label(t.get("priority"))
+            tid = t.get("id", "")[:8]
+            click.echo(f"  {p}  {t.get('title', '')}  [{tid}]")
     click.echo(f"\n{item.get('body', '')}")
 
 
@@ -298,6 +305,7 @@ main.add_command(todo)
 
 def _todo_list_impl(
     show_all: bool = False,
+    show_details: bool = False,
     category: str | None = None,
     project: str | None = None,
     priority: int | None = None,
@@ -349,27 +357,34 @@ def _todo_list_impl(
         tid = t.get("id", "")[:8]
         due = t.get("due_date") or ""
         cat = t.get("category") or ""
+        has_details = bool(t.get("details"))
         parts = [f"  {ind} {p}  {title}  [{tid}]"]
         if due:
             parts.append(f"due:{due}")
         if cat:
             parts.append(f"@{cat}")
+        if has_details:
+            parts.append("[+]")
         click.echo("  ".join(parts))
+        if show_details and has_details:
+            for line in t["details"].splitlines():
+                click.echo(f"       {line}")
 
 
 @todo.command("list")
 @click.option("--all", "show_all", is_flag=True, help="Show all including done")
+@click.option("--details", is_flag=True, help="Show details inline")
 @click.option("--category", "-c", default=None, help="Filter by category")
 @click.option("--project", "-j", default=None, help="Filter by project")
 @click.option("--priority", "-p", type=int, default=None, help="Filter by exact priority (1-5)")
 @click.option("--urgent", "-u", is_flag=True, help="Show only P1-P2 items")
 @click.option("--keyword", "-k", default=None, help="Search title and notes")
 @click.option("--due", "-d", default=None, help="Filter by due date: overdue, today, week, or YYYY-MM-DD")
-def todo_list(show_all, category, project, priority, urgent, keyword, due):
+def todo_list(show_all, details, category, project, priority, urgent, keyword, due):
     """List todos with optional filters."""
     max_priority = 2 if urgent else None
     _todo_list_impl(
-        show_all=show_all, category=category, project=project,
+        show_all=show_all, show_details=details, category=category, project=project,
         priority=priority, max_priority=max_priority, keyword=keyword, due=due,
     )
 
@@ -379,15 +394,18 @@ def todo_list(show_all, category, project, priority, urgent, keyword, due):
 @click.option("--priority", "-p", type=int, default=3, help="Priority (1-5)")
 @click.option("--due", "-d", default=None, help="Due date")
 @click.option("--note", "-n", default=None, help="Note text")
+@click.option("--details", default=None, help="Detailed description")
 @click.option("--category", "-c", default=None, help="Category")
 @click.option("--project", "-j", default=None, help="Project")
-def todo_add(title, priority, due, note, category, project):
+def todo_add(title, priority, due, note, details, category, project):
     """Add a new todo."""
     args: dict = {"title": title, "priority": priority}
     if due:
         args["due_date"] = due
     if note:
         args["note"] = note
+    if details:
+        args["details"] = details
     if category:
         args["category"] = category
     if project:
@@ -398,6 +416,44 @@ def todo_add(title, priority, due, note, category, project):
         display_error(resp)
         return
     click.echo(f"Created todo {resp.get('id', '')}")
+
+
+@todo.command("show")
+@click.argument("todo_id")
+def todo_show(todo_id):
+    """Show full detail for a todo."""
+    resp = send({"command": "todo_show", "args": {"id": todo_id}})
+    if "error" in resp and not resp.get("ok"):
+        display_error(resp)
+        return
+    t = resp.get("todo", {})
+    click.echo(f"ID:       {t.get('id', '')}")
+    click.echo(f"Title:    {t.get('title', '')}")
+    click.echo(f"Priority: {priority_label(t.get('priority'))}")
+    click.echo(f"Status:   {t.get('status', '')}")
+    cat = t.get("category") or ""
+    proj = t.get("project") or ""
+    due = t.get("due_date") or ""
+    if cat:
+        click.echo(f"Category: {cat}")
+    if proj:
+        click.echo(f"Project:  {proj}")
+    if due:
+        click.echo(f"Due:      {due}")
+    notes = t.get("notes") or ""
+    if notes:
+        click.echo(f"Notes:    {notes}")
+    details = t.get("details") or ""
+    if details:
+        click.echo(f"\nDetails:\n{details}")
+    linked_items = resp.get("linked_items", [])
+    if linked_items:
+        click.echo(f"\nLinked items:")
+        for item in linked_items:
+            src = truncate(item.get("source", ""), 15)
+            subj = item.get("subject", "(no subject)")
+            iid = item.get("id", "")[:8]
+            click.echo(f"  {src:15s}  {subj}  [{iid}]")
 
 
 @todo.command("done")
@@ -416,10 +472,11 @@ def todo_done(todo_id):
 @click.option("--priority", "-p", type=int, default=None, help="Priority (1-5)")
 @click.option("--title", "-t", default=None, help="Title")
 @click.option("--note", "-n", default=None, help="Note")
+@click.option("--details", default=None, help="Detailed description")
 @click.option("--category", "-c", default=None, help="Category")
 @click.option("--project", "-j", default=None, help="Project")
 @click.option("--due", "-d", default=None, help="Due date")
-def todo_edit(todo_id, priority, title, note, category, project, due):
+def todo_edit(todo_id, priority, title, note, details, category, project, due):
     """Edit a todo."""
     args: dict = {"id": todo_id}
     if priority is not None:
@@ -428,6 +485,8 @@ def todo_edit(todo_id, priority, title, note, category, project, due):
         args["title"] = title
     if note:
         args["note"] = note
+    if details:
+        args["details"] = details
     if category:
         args["category"] = category
     if project:

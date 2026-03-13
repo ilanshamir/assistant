@@ -97,6 +97,14 @@ class TriageEngine:
         else:
             sections.append("## Active Todos\nNo active todos.")
 
+        # Dismissed/done/deleted todos — do NOT re-create these
+        dismissed = context.get("dismissed_todos", [])
+        if dismissed:
+            dismissed_lines = [f"- {t.get('title', '')}" for t in dismissed]
+            sections.append(
+                "## Removed/Completed Todos (DO NOT re-create these)\n" + "\n".join(dismissed_lines)
+            )
+
         # Items to triage
         sections.append(f"## Items to Triage\n```json\n{json.dumps(items, indent=2)}\n```")
 

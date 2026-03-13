@@ -15,7 +15,7 @@ class AAShell(cmd.Cmd):
     prompt = "aa> "
 
     # Subcommand lists for tab completion
-    _todo_subcmds = ["list", "add", "done", "edit", "rm", "link"]
+    _todo_subcmds = ["list", "show", "add", "done", "edit", "rm", "link"]
     _rule_subcmds = ["list", "add", "rm"]
     _source_subcmds = ["list", "add", "rm"]
 
@@ -121,6 +121,13 @@ class AAShell(cmd.Cmd):
         self._print(f"Priority: {priority_label(item.get('priority'))}")
         self._print(f"Action:   {item.get('action', '')}")
         self._print(f"Received: {item.get('received_at', '')}")
+        linked_todos = resp.get("linked_todos", [])
+        if linked_todos:
+            self._print(f"\nLinked todos:")
+            for t in linked_todos:
+                p = priority_label(t.get("priority"))
+                tid = t.get("id", "")[:8]
+                self._print(f"  {p}  {t.get('title', '')}  [{tid}]")
         self._print(f"\n{item.get('body', '')}")
 
     def do_reply(self, arg: str) -> None:
@@ -169,22 +176,24 @@ class AAShell(cmd.Cmd):
         self._print("Item dismissed.")
 
     def do_todo(self, arg: str) -> None:
-        """Manage todos. Usage: todo [list|add|done|edit|rm|link] [args]
-        list: [--all] [--category/-c CAT] [--project/-j PROJ] [--priority/-p N] [--urgent/-u] [--keyword/-k TEXT] [--due/-d DATE]
-        add:  TITLE [--priority/-p N] [--due/-d DATE] [--note/-n TEXT] [--category/-c CAT] [--project/-j PROJ]
-        edit: TODO_ID [--title/-t T] [--priority/-p N] [--note/-n TEXT] [--category/-c CAT] [--project/-j PROJ] [--due/-d DATE]
+        """Manage todos. Usage: todo [list|show|add|done|edit|rm|link] [args]
+        list: [--all] [--details] [--category/-c CAT] [--project/-j PROJ] [--priority/-p N] [--urgent/-u] [--keyword/-k TEXT] [--due/-d DATE]
+        show: TODO_ID
+        add:  TITLE [--priority/-p N] [--due/-d DATE] [--note/-n TEXT] [--details TEXT] [--category/-c CAT] [--project/-j PROJ]
+        edit: TODO_ID [--title/-t T] [--priority/-p N] [--note/-n TEXT] [--details TEXT] [--category/-c CAT] [--project/-j PROJ] [--due/-d DATE]
         done: TODO_ID | rm: TODO_ID | link: TODO_ID ITEM_ID"""
         try:
             tokens = shlex.split(arg)
         except ValueError:
             tokens = arg.split()
 
-        subcmds = {"list", "add", "done", "edit", "rm", "link"}
+        subcmds = {"list", "show", "add", "done", "edit", "rm", "link"}
         if not tokens or tokens[0] == "list" or (tokens[0] not in subcmds):
             # List todos — treat unknown first token (e.g. --all) as implicit "list"
             rest = tokens[1:] if tokens and tokens[0] in subcmds else tokens
             flags, _ = self._parse_flags(rest, {
                 "--all": "!all",
+                "--details": "!details",
                 "--category": "category", "-c": "category",
                 "--project": "project", "-j": "project",
                 "--priority": "priority", "-p": "priority",
@@ -193,6 +202,7 @@ class AAShell(cmd.Cmd):
                 "--due": "due", "-d": "due",
             })
             args: dict[str, Any] = {}
+            show_details = flags.get("details", False)
             if flags.get("all"):
                 args["all"] = True
             if flags.get("category"):
@@ -233,12 +243,55 @@ class AAShell(cmd.Cmd):
                 tid = t.get("id", "")[:8]
                 due = t.get("due_date") or ""
                 cat = t.get("category") or ""
+                has_details = bool(t.get("details"))
                 parts = [f"  {ind} {p}  {title}  [{tid}]"]
                 if due:
                     parts.append(f"due:{due}")
                 if cat:
                     parts.append(f"@{cat}")
+                if has_details:
+                    parts.append("[+]")
                 self._print("  ".join(parts))
+                if show_details and has_details:
+                    for line in t["details"].splitlines():
+                        self._print(f"       {line}")
+
+        elif tokens[0] == "show":
+            if len(tokens) < 2:
+                self._print("Usage: todo show TODO_ID")
+                return
+            resp = self.send({"command": "todo_show", "args": {"id": tokens[1]}})
+            if "error" in resp and not resp.get("ok"):
+                self._print(f"Error: {resp.get('error', 'Unknown error')}")
+                return
+            t = resp.get("todo", {})
+            self._print(f"ID:       {t.get('id', '')}")
+            self._print(f"Title:    {t.get('title', '')}")
+            self._print(f"Priority: {priority_label(t.get('priority'))}")
+            self._print(f"Status:   {t.get('status', '')}")
+            cat = t.get("category") or ""
+            proj = t.get("project") or ""
+            due = t.get("due_date") or ""
+            if cat:
+                self._print(f"Category: {cat}")
+            if proj:
+                self._print(f"Project:  {proj}")
+            if due:
+                self._print(f"Due:      {due}")
+            notes = t.get("notes") or ""
+            if notes:
+                self._print(f"Notes:    {notes}")
+            details = t.get("details") or ""
+            if details:
+                self._print(f"\nDetails:\n{details}")
+            linked_items = resp.get("linked_items", [])
+            if linked_items:
+                self._print(f"\nLinked items:")
+                for item in linked_items:
+                    src = truncate(item.get("source", ""), 15)
+                    subj = item.get("subject", "(no subject)")
+                    iid = item.get("id", "")[:8]
+                    self._print(f"  {src:15s}  {subj}  [{iid}]")
 
         elif tokens[0] == "add":
             rest = tokens[1:]
@@ -246,11 +299,12 @@ class AAShell(cmd.Cmd):
                 "--priority": "priority", "-p": "priority",
                 "--due": "due", "-d": "due",
                 "--note": "note", "-n": "note",
+                "--details": "details",
                 "--category": "category", "-c": "category",
                 "--project": "project", "-j": "project",
             })
             if not positional:
-                self._print("Usage: todo add TITLE [--priority/-p N] [--due/-d DATE] [--note/-n TEXT] [--category/-c CAT] [--project/-j PROJ]")
+                self._print("Usage: todo add TITLE [--priority/-p N] [--due/-d DATE] [--note/-n TEXT] [--details TEXT] [--category/-c CAT] [--project/-j PROJ]")
                 return
             title = " ".join(positional)
             args = {"title": title, "priority": int(flags.get("priority", 3))}
@@ -258,6 +312,8 @@ class AAShell(cmd.Cmd):
                 args["due_date"] = flags["due"]
             if flags.get("note"):
                 args["note"] = flags["note"]
+            if flags.get("details"):
+                args["details"] = flags["details"]
             if flags.get("category"):
                 args["category"] = flags["category"]
             if flags.get("project"):
@@ -280,7 +336,7 @@ class AAShell(cmd.Cmd):
 
         elif tokens[0] == "edit":
             if len(tokens) < 2:
-                self._print("Usage: todo edit TODO_ID [--title/-t T] [--priority/-p N] [--note/-n TEXT] [--category/-c CAT] [--project/-j PROJ] [--due/-d DATE]")
+                self._print("Usage: todo edit TODO_ID [--title/-t T] [--priority/-p N] [--note/-n TEXT] [--details TEXT] [--category/-c CAT] [--project/-j PROJ] [--due/-d DATE]")
                 return
             todo_id = tokens[1]
             rest = tokens[2:]
@@ -288,6 +344,7 @@ class AAShell(cmd.Cmd):
                 "--priority": "priority", "-p": "priority",
                 "--title": "title", "-t": "title",
                 "--note": "note", "-n": "note",
+                "--details": "details",
                 "--category": "category", "-c": "category",
                 "--project": "project", "-j": "project",
                 "--due": "due", "-d": "due",
@@ -299,6 +356,8 @@ class AAShell(cmd.Cmd):
                 args["title"] = flags["title"]
             if flags.get("note"):
                 args["note"] = flags["note"]
+            if flags.get("details"):
+                args["details"] = flags["details"]
             if flags.get("category"):
                 args["category"] = flags["category"]
             if flags.get("project"):
@@ -513,7 +572,8 @@ class AAShell(cmd.Cmd):
             ("reply ITEM_ID", "Request draft response"),
             ("reprioritize ITEM_ID PRI", "Change priority"),
             ("dismiss ITEM_ID", "Dismiss item"),
-            ("todo list [--all] [--category/-c] ...", "List todos"),
+            ("todo list [--all] [--details] ...", "List todos"),
+            ("todo show TODO_ID", "Show todo detail"),
             ("todo add TITLE [--priority/-p N] ...", "Add a todo"),
             ("todo done TODO_ID", "Mark todo as done"),
             ("todo edit TODO_ID [--title/-t] ...", "Edit a todo"),

@@ -236,6 +236,13 @@ class Daemon:
         # Get active todos including due_dates for context
         todos = await self._db.list_todos(status="pending")
 
+        # Get removed/done todos so triage won't re-create them
+        done_todos = await self._db.list_todos(status="done")
+        deleted_todos = await self._db.list_todos(status="deleted", include_deleted=True)
+        dismissed_todos = [
+            {"title": t["title"]} for t in done_todos + deleted_todos
+        ]
+
         # Get today's calendar events
         calendar_items = await self._db.list_items(source="calendar")
 
@@ -243,6 +250,7 @@ class Daemon:
             "rules": rule_texts,
             "feedback_summary": feedback_summary,
             "active_todos": todos,
+            "dismissed_todos": dismissed_todos,
             "calendar_today": calendar_items,
         }
 

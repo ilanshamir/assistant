@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS todos (
     project TEXT,
     due_date TEXT,
     notes TEXT,
+    details TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     completed_at TEXT
 );
@@ -111,7 +112,16 @@ class Database:
         self._db = await aiosqlite.connect(self.path)
         self._db.row_factory = aiosqlite.Row
         await self._db.executescript(SCHEMA)
+        await self._migrate()
         await self._db.commit()
+
+    async def _migrate(self) -> None:
+        """Apply schema migrations for existing databases."""
+        # Add details column to todos if missing
+        cursor = await self.db.execute("PRAGMA table_info(todos)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if "details" not in columns:
+            await self.db.execute("ALTER TABLE todos ADD COLUMN details TEXT")
 
     async def close(self) -> None:
         """Close the database connection."""
@@ -220,11 +230,12 @@ class Database:
         category: str | None = None,
         project: str | None = None,
         due_date: str | None = None,
+        details: str | None = None,
     ) -> str:
         todo_id = _new_id()
         await self.db.execute(
-            "INSERT INTO todos (id, title, priority, category, project, due_date) VALUES (?, ?, ?, ?, ?, ?)",
-            (todo_id, title, priority, category, project, due_date),
+            "INSERT INTO todos (id, title, priority, category, project, due_date, details) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (todo_id, title, priority, category, project, due_date, details),
         )
         await self.db.commit()
         return todo_id
@@ -237,6 +248,7 @@ class Database:
     async def list_todos(
         self,
         status: str | None = None,
+        include_deleted: bool = False,
         category: str | None = None,
         project: str | None = None,
         priority: int | None = None,
@@ -246,6 +258,8 @@ class Database:
     ) -> list[dict[str, Any]]:
         query = "SELECT * FROM todos WHERE 1=1"
         params: list[Any] = []
+        if not include_deleted:
+            query += " AND status != 'deleted'"
         if status:
             query += " AND status = ?"
             params.append(status)
@@ -262,9 +276,9 @@ class Database:
             query += " AND priority <= ?"
             params.append(max_priority)
         if keyword:
-            query += " AND (title LIKE ? OR notes LIKE ?)"
+            query += " AND (title LIKE ? OR notes LIKE ? OR details LIKE ?)"
             like = f"%{keyword}%"
-            params.extend([like, like])
+            params.extend([like, like, like])
         if due_before:
             query += " AND due_date IS NOT NULL AND due_date <= ?"
             params.append(due_before)
@@ -289,7 +303,9 @@ class Database:
         await self.db.commit()
 
     async def delete_todo(self, todo_id: str) -> None:
-        await self.db.execute("DELETE FROM todos WHERE id = ?", (todo_id,))
+        await self.db.execute(
+            "UPDATE todos SET status = 'deleted' WHERE id = ?", (todo_id,)
+        )
         await self.db.commit()
 
     async def link_todo(self, todo_id: str, item_id: str) -> str:
@@ -304,6 +320,13 @@ class Database:
     async def get_todo_links(self, todo_id: str) -> list[dict[str, Any]]:
         cursor = await self.db.execute(
             "SELECT * FROM todo_links WHERE todo_id = ?", (todo_id,)
+        )
+        rows = await cursor.fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+    async def get_item_links(self, item_id: str) -> list[dict[str, Any]]:
+        cursor = await self.db.execute(
+            "SELECT * FROM todo_links WHERE item_id = ?", (item_id,)
         )
         rows = await cursor.fetchall()
         return [_row_to_dict(r) for r in rows]
