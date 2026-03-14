@@ -45,6 +45,7 @@ class RequestHandler:
             "todo_done": self._cmd_todo_done,
             "todo_edit": self._cmd_todo_edit,
             "todo_rm": self._cmd_todo_rm,
+            "todo_export": self._cmd_todo_export,
             "todo_link": self._cmd_todo_link,
             "reprioritize": self._cmd_reprioritize,
             "dismiss": self._cmd_dismiss,
@@ -192,6 +193,11 @@ class RequestHandler:
             return {"ok": False, "error": f"Todo not found: {raw_id}"}
         await self.db.delete_todo(todo_id)
         return {"ok": True}
+
+    async def _cmd_todo_export(self, args: dict) -> dict:
+        """Export all todos as a list of dicts (for CSV generation)."""
+        todos = await self.db.list_todos(include_deleted=True)
+        return {"ok": True, "todos": todos}
 
     async def _cmd_todo_link(self, args: dict) -> dict:
         """Link a todo to an item."""

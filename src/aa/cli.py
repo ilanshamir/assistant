@@ -524,6 +524,46 @@ def todo_rm(todo_id):
     click.echo("Todo removed.")
 
 
+def _default_export_path() -> str:
+    from datetime import datetime
+    export_dir = _config.data_dir / "exports"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return str(export_dir / f"todos_{ts}.csv")
+
+
+def export_todos_csv(todos: list[dict], output: str) -> str:
+    """Write todos to a CSV file. Returns the output path."""
+    import csv
+
+    fields = ["id", "title", "priority", "status", "category", "project",
+              "due_date", "notes", "details", "created_at", "completed_at"]
+    with open(output, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(todos)
+    return output
+
+
+@todo.command("export")
+@click.option("--output", "-o", default=None, help="Output file path (default: todos_<datetime>.csv)")
+def todo_export(output):
+    """Export all todos (including done and removed) to CSV."""
+    resp = send({"command": "todo_export", "args": {}})
+    if "error" in resp and not resp.get("ok"):
+        display_error(resp)
+        return
+
+    todos = resp.get("todos", [])
+    if not todos:
+        click.echo("No todos to export.")
+        return
+
+    output = output or _default_export_path()
+    export_todos_csv(todos, output)
+    click.echo(f"Exported {len(todos)} todos to {output}")
+
+
 # ---------------------------------------------------------------------------
 # Calendar
 # ---------------------------------------------------------------------------

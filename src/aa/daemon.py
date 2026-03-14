@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import signal
+import time
 from typing import Any
 
 from aa.ai.rules import build_feedback_summary
@@ -45,6 +46,7 @@ class Daemon:
         self._server: SocketServer | None = None
         self._connectors: dict[str, BaseConnector] = {}
         self._running = False
+        self._last_export: float = 0
 
     async def start(self) -> None:
         """Initialize DB, AI engine, server, and start the poll loop."""
@@ -175,6 +177,7 @@ class Daemon:
                 self._reload_connectors()
                 await self._poll_all_sources()
                 await self._run_triage()
+                await self._maybe_export_todos()
             except Exception:
                 logger.exception("Error during poll cycle")
 
@@ -215,6 +218,29 @@ class Daemon:
             except Exception:
                 logger.exception("Error polling %s", source_name)
                 await self._db.update_sync_state(source_name, status="error")
+
+    async def _maybe_export_todos(self) -> None:
+        """Export todos to CSV every 12 hours."""
+        export_interval = 12 * 60 * 60  # 12 hours in seconds
+        now = time.time()
+        if now - self._last_export < export_interval:
+            return
+
+        assert self._db is not None
+        from aa.cli import export_todos_csv
+
+        todos = await self._db.list_todos(include_deleted=True)
+        if not todos:
+            return
+
+        export_dir = self.config.data_dir / "exports"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output = str(export_dir / f"todos_{ts}.csv")
+        export_todos_csv(todos, output)
+        self._last_export = now
+        logger.info("Auto-exported %d todos to %s", len(todos), output)
 
     async def _run_triage(self) -> None:
         """Get untriaged items, build context, call triage engine, store results."""

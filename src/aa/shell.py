@@ -15,7 +15,7 @@ class AAShell(cmd.Cmd):
     prompt = "aa> "
 
     # Subcommand lists for tab completion
-    _todo_subcmds = ["list", "show", "add", "done", "edit", "rm", "link"]
+    _todo_subcmds = ["list", "show", "add", "done", "edit", "rm", "link", "export"]
     _rule_subcmds = ["list", "add", "rm"]
     _source_subcmds = ["list", "add", "rm"]
 
@@ -187,7 +187,7 @@ class AAShell(cmd.Cmd):
         except ValueError:
             tokens = arg.split()
 
-        subcmds = {"list", "show", "add", "done", "edit", "rm", "link"}
+        subcmds = {"list", "show", "add", "done", "edit", "rm", "link", "export"}
         if not tokens or tokens[0] == "list" or (tokens[0] not in subcmds):
             # List todos — treat unknown first token (e.g. --all) as implicit "list"
             rest = tokens[1:] if tokens and tokens[0] in subcmds else tokens
@@ -390,6 +390,24 @@ class AAShell(cmd.Cmd):
                 return
             self._print("Linked.")
 
+        elif tokens[0] == "export":
+            from aa.cli import export_todos_csv, _default_export_path
+            rest = tokens[1:]
+            flags, _ = self._parse_flags(rest, {
+                "--output": "output", "-o": "output",
+            })
+            output = flags.get("output") or _default_export_path()
+            resp = self.send({"command": "todo_export", "args": {}})
+            if "error" in resp and not resp.get("ok"):
+                self._print(f"Error: {resp.get('error', 'Unknown error')}")
+                return
+            todos = resp.get("todos", [])
+            if not todos:
+                self._print("No todos to export.")
+                return
+            export_todos_csv(todos, output)
+            self._print(f"Exported {len(todos)} todos to {output}")
+
         else:
             self._print(f"Unknown todo subcommand: {tokens[0]}")
 
@@ -579,6 +597,7 @@ class AAShell(cmd.Cmd):
             ("todo edit TODO_ID [--title/-t] ...", "Edit a todo"),
             ("todo rm TODO_ID", "Remove a todo"),
             ("todo link TODO_ID ITEM_ID", "Link todo to item"),
+            ("todo export [--output/-o FILE]", "Export all todos to CSV"),
             ("calendar [when]", "Show calendar events"),
             ("ask QUESTION", "Ask the AI assistant"),
             ("rule [list|add|rm]", "Manage triage rules"),
