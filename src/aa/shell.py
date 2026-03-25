@@ -189,20 +189,55 @@ class AAShell(cmd.Cmd):
 
         subcmds = {"list", "show", "add", "done", "edit", "rm", "link", "export"}
         if not tokens or tokens[0] == "list" or (tokens[0] not in subcmds):
-            # List todos — treat unknown first token (e.g. --all) as implicit "list"
+            # Parse flags first to decide: list or bulk edit?
             rest = tokens[1:] if tokens and tokens[0] in subcmds else tokens
-            flags, _ = self._parse_flags(rest, {
-                "--all": "!all",
-                "--details": "!details",
+            edit_flag_map = {
+                "--priority": "priority", "-p": "priority",
+                "--title": "title", "-t": "title",
+                "--note": "note", "-n": "note",
+                "--details": "details",
                 "--category": "category", "-c": "category",
                 "--project": "project", "-j": "project",
-                "--priority": "priority", "-p": "priority",
+                "--due": "due", "-d": "due",
+            }
+            list_flag_map = {
+                "--all": "!all",
+                "--details": "!details_flag",
                 "--urgent": "!urgent", "-u": "!urgent",
                 "--keyword": "keyword", "-k": "keyword",
-                "--due": "due", "-d": "due",
-            })
+            }
+            # Merge both flag maps for parsing
+            combined_flags = {**edit_flag_map, **list_flag_map}
+            flags, positional = self._parse_flags(rest, combined_flags)
+
+            # If there are positional args (IDs) and edit-type flags, treat as bulk edit
+            edit_keys = {"priority", "title", "note", "details", "category", "due"}
+            has_edit_flags = bool(edit_keys & set(flags.keys()))
+            if positional and has_edit_flags:
+                edit_args: dict[str, Any] = {}
+                if flags.get("priority"):
+                    edit_args["priority"] = int(flags["priority"])
+                if flags.get("title"):
+                    edit_args["title"] = flags["title"]
+                if flags.get("note"):
+                    edit_args["note"] = flags["note"]
+                if flags.get("details"):
+                    edit_args["details"] = flags["details"]
+                if flags.get("category"):
+                    edit_args["category"] = flags["category"]
+                if flags.get("due"):
+                    edit_args["due_date"] = flags["due"]
+                for todo_id in positional:
+                    resp = self.send({"command": "todo_edit", "args": {"id": todo_id, **edit_args}})
+                    if "error" in resp and not resp.get("ok"):
+                        self._print(f"Error [{todo_id}]: {resp.get('error', 'Unknown error')}")
+                    else:
+                        self._print(f"Updated {todo_id}")
+                return
+
+            # Otherwise it's a list command
             args: dict[str, Any] = {}
-            show_details = flags.get("details", False)
+            show_details = flags.get("details_flag", False)
             if flags.get("all"):
                 args["all"] = True
             if flags.get("category"):
@@ -326,21 +361,18 @@ class AAShell(cmd.Cmd):
 
         elif tokens[0] == "done":
             if len(tokens) < 2:
-                self._print("Usage: todo done TODO_ID")
+                self._print("Usage: todo done TODO_ID [TODO_ID ...]")
                 return
-            resp = self.send({"command": "todo_done", "args": {"id": tokens[1]}})
-            if "error" in resp and not resp.get("ok"):
-                self._print(f"Error: {resp.get('error', 'Unknown error')}")
-                return
-            self._print("Todo marked as done.")
+            for todo_id in tokens[1:]:
+                resp = self.send({"command": "todo_done", "args": {"id": todo_id}})
+                if "error" in resp and not resp.get("ok"):
+                    self._print(f"Error [{todo_id}]: {resp.get('error', 'Unknown error')}")
+                else:
+                    self._print(f"Done: {todo_id}")
 
         elif tokens[0] == "edit":
-            if len(tokens) < 2:
-                self._print("Usage: todo edit TODO_ID [--title/-t T] [--priority/-p N] [--note/-n TEXT] [--details TEXT] [--category/-c CAT] [--project/-j PROJ] [--due/-d DATE]")
-                return
-            todo_id = tokens[1]
-            rest = tokens[2:]
-            flags, _ = self._parse_flags(rest, {
+            rest = tokens[1:]
+            flags, positional = self._parse_flags(rest, {
                 "--priority": "priority", "-p": "priority",
                 "--title": "title", "-t": "title",
                 "--note": "note", "-n": "note",
@@ -349,36 +381,41 @@ class AAShell(cmd.Cmd):
                 "--project": "project", "-j": "project",
                 "--due": "due", "-d": "due",
             })
-            args = {"id": todo_id}
-            if flags.get("priority"):
-                args["priority"] = int(flags["priority"])
-            if flags.get("title"):
-                args["title"] = flags["title"]
-            if flags.get("note"):
-                args["note"] = flags["note"]
-            if flags.get("details"):
-                args["details"] = flags["details"]
-            if flags.get("category"):
-                args["category"] = flags["category"]
-            if flags.get("project"):
-                args["project"] = flags["project"]
-            if flags.get("due"):
-                args["due_date"] = flags["due"]
-            resp = self.send({"command": "todo_edit", "args": args})
-            if "error" in resp and not resp.get("ok"):
-                self._print(f"Error: {resp.get('error', 'Unknown error')}")
+            if not positional:
+                self._print("Usage: todo edit TODO_ID [TODO_ID ...] [--title/-t T] [--priority/-p N] [--note/-n TEXT] [--details TEXT] [--category/-c CAT] [--project/-j PROJ] [--due/-d DATE]")
                 return
-            self._print("Todo updated.")
+            edit_args: dict[str, Any] = {}
+            if flags.get("priority"):
+                edit_args["priority"] = int(flags["priority"])
+            if flags.get("title"):
+                edit_args["title"] = flags["title"]
+            if flags.get("note"):
+                edit_args["note"] = flags["note"]
+            if flags.get("details"):
+                edit_args["details"] = flags["details"]
+            if flags.get("category"):
+                edit_args["category"] = flags["category"]
+            if flags.get("project"):
+                edit_args["project"] = flags["project"]
+            if flags.get("due"):
+                edit_args["due_date"] = flags["due"]
+            for todo_id in positional:
+                resp = self.send({"command": "todo_edit", "args": {"id": todo_id, **edit_args}})
+                if "error" in resp and not resp.get("ok"):
+                    self._print(f"Error [{todo_id}]: {resp.get('error', 'Unknown error')}")
+                else:
+                    self._print(f"Updated {todo_id}")
 
         elif tokens[0] == "rm":
             if len(tokens) < 2:
-                self._print("Usage: todo rm TODO_ID")
+                self._print("Usage: todo rm TODO_ID [TODO_ID ...]")
                 return
-            resp = self.send({"command": "todo_rm", "args": {"id": tokens[1]}})
-            if "error" in resp and not resp.get("ok"):
-                self._print(f"Error: {resp.get('error', 'Unknown error')}")
-                return
-            self._print("Todo removed.")
+            for todo_id in tokens[1:]:
+                resp = self.send({"command": "todo_rm", "args": {"id": todo_id}})
+                if "error" in resp and not resp.get("ok"):
+                    self._print(f"Error [{todo_id}]: {resp.get('error', 'Unknown error')}")
+                else:
+                    self._print(f"Removed {todo_id}")
 
         elif tokens[0] == "link":
             if len(tokens) < 3:

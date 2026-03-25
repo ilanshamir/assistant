@@ -457,18 +457,19 @@ def todo_show(todo_id):
 
 
 @todo.command("done")
-@click.argument("todo_id")
-def todo_done(todo_id):
-    """Mark a todo as done."""
-    resp = send({"command": "todo_done", "args": {"id": todo_id}})
-    if "error" in resp and not resp.get("ok"):
-        display_error(resp)
-        return
-    click.echo("Todo marked as done.")
+@click.argument("todo_ids", nargs=-1, required=True)
+def todo_done(todo_ids):
+    """Mark one or more todos as done."""
+    for todo_id in todo_ids:
+        resp = send({"command": "todo_done", "args": {"id": todo_id}})
+        if "error" in resp and not resp.get("ok"):
+            display_error(resp)
+        else:
+            click.echo(f"Done: {todo_id}")
 
 
 @todo.command("edit")
-@click.argument("todo_id")
+@click.argument("todo_ids", nargs=-1, required=True)
 @click.option("--priority", "-p", type=int, default=None, help="Priority (1-5)")
 @click.option("--title", "-t", default=None, help="Title")
 @click.option("--note", "-n", default=None, help="Note")
@@ -476,29 +477,30 @@ def todo_done(todo_id):
 @click.option("--category", "-c", default=None, help="Category")
 @click.option("--project", "-j", default=None, help="Project")
 @click.option("--due", "-d", default=None, help="Due date")
-def todo_edit(todo_id, priority, title, note, details, category, project, due):
-    """Edit a todo."""
-    args: dict = {"id": todo_id}
+def todo_edit(todo_ids, priority, title, note, details, category, project, due):
+    """Edit one or more todos."""
+    edit_args: dict = {}
     if priority is not None:
-        args["priority"] = priority
+        edit_args["priority"] = priority
     if title:
-        args["title"] = title
+        edit_args["title"] = title
     if note:
-        args["note"] = note
+        edit_args["note"] = note
     if details:
-        args["details"] = details
+        edit_args["details"] = details
     if category:
-        args["category"] = category
+        edit_args["category"] = category
     if project:
-        args["project"] = project
+        edit_args["project"] = project
     if due:
-        args["due_date"] = due
+        edit_args["due_date"] = due
 
-    resp = send({"command": "todo_edit", "args": args})
-    if "error" in resp and not resp.get("ok"):
-        display_error(resp)
-        return
-    click.echo("Todo updated.")
+    for todo_id in todo_ids:
+        resp = send({"command": "todo_edit", "args": {"id": todo_id, **edit_args}})
+        if "error" in resp and not resp.get("ok"):
+            display_error(resp)
+        else:
+            click.echo(f"Updated {todo_id}")
 
 
 @todo.command("link")
@@ -514,14 +516,15 @@ def todo_link(todo_id, item_id):
 
 
 @todo.command("rm")
-@click.argument("todo_id")
-def todo_rm(todo_id):
-    """Remove a todo."""
-    resp = send({"command": "todo_rm", "args": {"id": todo_id}})
-    if "error" in resp and not resp.get("ok"):
-        display_error(resp)
-        return
-    click.echo("Todo removed.")
+@click.argument("todo_ids", nargs=-1, required=True)
+def todo_rm(todo_ids):
+    """Remove one or more todos."""
+    for todo_id in todo_ids:
+        resp = send({"command": "todo_rm", "args": {"id": todo_id}})
+        if "error" in resp and not resp.get("ok"):
+            display_error(resp)
+        else:
+            click.echo(f"Removed {todo_id}")
 
 
 def _default_export_path() -> str:
