@@ -21,6 +21,8 @@ class AppConfig:
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-4-20250514"
     sources: dict = field(default_factory=dict)
+    web_enabled: bool = False
+    web_port: int = 8080
 
     @property
     def db_path(self) -> Path:

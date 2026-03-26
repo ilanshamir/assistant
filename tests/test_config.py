@@ -35,6 +35,11 @@ class TestConfigDefaults:
         cfg = AppConfig()
         assert cfg.sources == {}
 
+    def test_web_config_defaults(self):
+        cfg = AppConfig()
+        assert cfg.web_enabled is False
+        assert cfg.web_port == 8080
+
 
 class TestConfigProperties:
     def test_db_path(self):
