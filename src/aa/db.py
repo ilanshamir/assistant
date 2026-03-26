@@ -117,11 +117,12 @@ class Database:
 
     async def _migrate(self) -> None:
         """Apply schema migrations for existing databases."""
-        # Add details column to todos if missing
         cursor = await self.db.execute("PRAGMA table_info(todos)")
         columns = {row[1] for row in await cursor.fetchall()}
         if "details" not in columns:
             await self.db.execute("ALTER TABLE todos ADD COLUMN details TEXT")
+        if "notes" not in columns:
+            await self.db.execute("ALTER TABLE todos ADD COLUMN notes TEXT")
 
     async def close(self) -> None:
         """Close the database connection."""
