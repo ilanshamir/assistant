@@ -26,8 +26,13 @@ Use this instead of todo_title when the item contains multiple distinct tasks.
 
 IMPORTANT: When an item is a notes or document type (e.g. meeting notes, a to-do list file), \
 carefully extract ALL individual action items and return them in the "todos" list. \
-Do not collapse multiple tasks into a single to-do. Skip items already marked as done \
-(e.g. prefixed with [done]) and skip items that duplicate existing active todos.
+Do not collapse multiple tasks into a single to-do. \
+Lines under headings like "To Do", "Action Items", "TODO", or bullet points starting with \
+"- [ ]" are EXPLICIT todos — always extract them, even if a similar (but not identical) \
+todo already exists. Only skip items that are exact duplicates of existing active todos \
+(same task, same scope). "Book July hotels for Boston" is NOT a duplicate of "Plan Boston trip" \
+— these are distinct tasks. When in doubt, extract it. \
+Skip items already marked as done (e.g. prefixed with [done], [x], or ✓).
 
 IMPORTANT: Pay close attention to due dates on existing todos. If an incoming item \
 is related to a todo that is due soon, elevate its priority accordingly. Items \
