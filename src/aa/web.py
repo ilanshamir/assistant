@@ -373,8 +373,8 @@ async def chat_action(request: web.Request) -> web.Response:
 def create_app(config: AppConfig, db: Database) -> web.Application:
     """Create and configure the aiohttp web application."""
     app = web.Application(middlewares=[csrf_middleware])
-    app["config"] = config
-    app["db"] = db
+    app["config"] = config  # type: ignore[assignment]
+    app["db"] = db  # type: ignore[assignment]
 
     # Setup Jinja2
     aiohttp_jinja2.setup(
