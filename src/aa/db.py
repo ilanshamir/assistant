@@ -169,7 +169,7 @@ class Database:
     async def insert_item(self, item: dict[str, Any]) -> str:
         item_id = item.get("id") or _new_id()
         await self.db.execute(
-            """INSERT INTO items (id, source, source_id, type, from_name, from_address,
+            """INSERT OR IGNORE INTO items (id, source, source_id, type, from_name, from_address,
                subject, body, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 item_id,
