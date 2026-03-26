@@ -44,6 +44,8 @@ class Daemon:
         self._db: Database | None = None
         self._engine: TriageEngine | None = None
         self._server: SocketServer | None = None
+        self._web_runner = None
+        self._web_site = None
         self._connectors: dict[str, BaseConnector] = {}
         self._running = False
         self._last_export: float = 0
@@ -74,6 +76,10 @@ class Daemon:
         )
         self._server = SocketServer(handler, self.config.socket_path)
         await self._server.start()
+
+        # Start web server if enabled
+        if self.config.web_enabled:
+            await self._start_web_server()
 
         # Start polling loop
         self._running = True
@@ -161,9 +167,27 @@ class Daemon:
                 except Exception:
                     logger.exception("Failed to initialize connector: %s", name)
 
+    async def _start_web_server(self) -> None:
+        """Start the HTTP web server using AppRunner + TCPSite."""
+        from aiohttp.web_runner import AppRunner, TCPSite
+        from aa.web import create_app
+
+        app = create_app(self.config, self._db)
+        self._web_runner = AppRunner(app)
+        await self._web_runner.setup()
+        self._web_site = TCPSite(
+            self._web_runner, "localhost", self.config.web_port
+        )
+        await self._web_site.start()
+        logger.info("Web UI available at http://localhost:%d", self.config.web_port)
+
     async def stop(self) -> None:
         """Stop the server and close the database."""
         self._running = False
+        if self._web_runner:
+            await self._web_runner.cleanup()
+            self._web_runner = None
+            self._web_site = None
         if self._server:
             await self._server.stop()
         if self._db:
@@ -357,9 +381,17 @@ def run_daemon(config: AppConfig) -> None:
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--web", action="store_true", help="Enable web UI")
+    args = parser.parse_args()
+
     config = AppConfig()
     config_path = config.data_dir / "config.json"
     if config_path.exists():
         config = AppConfig.from_file(config_path)
+
+    if args.web:
+        config.web_enabled = True
 
     run_daemon(config)

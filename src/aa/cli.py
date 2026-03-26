@@ -108,7 +108,7 @@ def main(ctx):
 # Daemon control
 # ---------------------------------------------------------------------------
 
-def start_daemon() -> str:
+def start_daemon(web: bool = False) -> str:
     """Start the daemon as a background process. Returns a status message."""
     config = _config
     config.ensure_dirs()
@@ -126,14 +126,21 @@ def start_daemon() -> str:
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "daemon.log"
 
+    cmd = [sys.executable, "-m", "aa.daemon"]
+    if web:
+        cmd.append("--web")
+
     proc = subprocess.Popen(
-        [sys.executable, "-m", "aa.daemon"],
+        cmd,
         stdout=open(log_file, "a"),
         stderr=subprocess.STDOUT,
         start_new_session=True,
     )
     pid_file.write_text(str(proc.pid))
-    return f"Daemon started (PID {proc.pid})"
+    msg = f"Daemon started (PID {proc.pid})"
+    if web:
+        msg += f"\nWeb UI at http://localhost:{config.web_port}"
+    return msg
 
 
 def stop_daemon() -> str:
@@ -152,9 +159,10 @@ def stop_daemon() -> str:
 
 
 @main.command()
-def start():
+@click.option("--web", is_flag=True, help="Enable web UI")
+def start(web):
     """Start the daemon as a background process."""
-    click.echo(start_daemon())
+    click.echo(start_daemon(web=web))
 
 
 @main.command()
