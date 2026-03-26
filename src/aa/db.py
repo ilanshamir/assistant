@@ -255,6 +255,7 @@ class Database:
         max_priority: int | None = None,
         keyword: str | None = None,
         due_before: str | None = None,
+        sort: str | None = None,
     ) -> list[dict[str, Any]]:
         query = "SELECT * FROM todos WHERE 1=1"
         params: list[Any] = []
@@ -276,13 +277,26 @@ class Database:
             query += " AND priority <= ?"
             params.append(max_priority)
         if keyword:
-            query += " AND (title LIKE ? OR notes LIKE ? OR details LIKE ?)"
+            query += " AND (title LIKE ? OR notes LIKE ? OR details LIKE ? OR category LIKE ? OR project LIKE ?)"
             like = f"%{keyword}%"
-            params.extend([like, like, like])
+            params.extend([like, like, like, like, like])
         if due_before:
             query += " AND due_date IS NOT NULL AND due_date <= ?"
             params.append(due_before)
-        query += " ORDER BY priority, created_at"
+        if sort:
+            allowed = {"priority", "due_date", "created_at", "title", "category", "project"}
+            parts = []
+            for part in sort.split(","):
+                col = part.strip().lstrip("-")
+                if col in allowed:
+                    direction = "DESC" if part.strip().startswith("-") else "ASC"
+                    parts.append(f"{col} IS NULL, {col} {direction}")
+            if parts:
+                query += " ORDER BY " + ", ".join(parts)
+            else:
+                query += " ORDER BY priority, created_at"
+        else:
+            query += " ORDER BY priority, created_at"
         cursor = await self.db.execute(query, params)
         rows = await cursor.fetchall()
         return [_row_to_dict(r) for r in rows]

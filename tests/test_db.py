@@ -256,3 +256,29 @@ async def test_resolve_id_prefix(db):
 async def test_resolve_id_not_found(db):
     resolved = await db.resolve_id("todos", "nonexistent")
     assert resolved is None
+
+
+@pytest.mark.asyncio
+async def test_list_todos_sort_by_due_date(db):
+    await db.insert_todo(title="Later", priority=1, due_date="2026-04-01")
+    await db.insert_todo(title="Sooner", priority=1, due_date="2026-03-15")
+    await db.insert_todo(title="No date", priority=1)
+
+    todos = await db.list_todos(sort="priority,due_date")
+    assert todos[0]["title"] == "Sooner"
+    assert todos[1]["title"] == "Later"
+    assert todos[2]["title"] == "No date"
+
+
+@pytest.mark.asyncio
+async def test_todo_keyword_searches_category_and_project(db):
+    await db.insert_todo(title="Task A", priority=2, category="engineering", project="backend")
+    await db.insert_todo(title="Task B", priority=3, category="marketing")
+
+    results = await db.list_todos(keyword="engineering")
+    assert len(results) == 1
+    assert results[0]["title"] == "Task A"
+
+    results = await db.list_todos(keyword="backend")
+    assert len(results) == 1
+    assert results[0]["title"] == "Task A"
