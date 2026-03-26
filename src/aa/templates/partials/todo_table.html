@@ -1,0 +1,6 @@
+{% for todo in todos %}
+{% include "partials/todo_row.html" %}
+{% endfor %}
+{% if not todos %}
+<tr><td colspan="6" class="empty-state">No todos. Click "+ New" to create one.</td></tr>
+{% endif %}

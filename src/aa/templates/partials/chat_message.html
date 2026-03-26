@@ -1,0 +1,22 @@
+<div class="chat-msg chat-{{ role }}">
+  <div class="chat-bubble">{{ content }}</div>
+  {% if actions %}
+  <div class="chat-actions">
+    {% for action in actions %}
+    <button class="action-btn" onclick='executeAction({{ action | tojson }})'>
+      {% if action.type == "create_todo" %}
+        Create: "{{ action.title }}" P{{ action.get("priority", 3) }}{% if action.get("due") %} due {{ action.due }}{% endif %}
+      {% elif action.type == "mark_done" %}
+        Done: {{ action.todo_id }}
+      {% elif action.type == "set_priority" %}
+        Set P{{ action.priority }}: {{ action.todo_id }}
+      {% elif action.type == "set_due" %}
+        Set due {{ action.due }}: {{ action.todo_id }}
+      {% elif action.type == "delete_todo" %}
+        Delete: {{ action.todo_id }}
+      {% endif %}
+    </button>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>

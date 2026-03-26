@@ -1,0 +1,40 @@
+<tr class="todo-detail" data-detail-for="{{ todo.id }}">
+  <td colspan="6">
+    <div class="detail-content">
+      <div class="detail-row">
+        <label>Title</label>
+        <input type="text" value="{{ todo.title }}"
+               hx-patch="/todos/{{ todo.id }}" hx-trigger="blur, keydown[key=='Enter']"
+               hx-vals='js:{"title": event.target.value}'
+               hx-target="closest tr" hx-swap="delete"
+               name="title">
+      </div>
+      <div class="detail-row">
+        <label>Details</label>
+        <textarea hx-patch="/todos/{{ todo.id }}" hx-trigger="blur"
+                  hx-vals='js:{"details": event.target.value}'
+                  hx-target="closest tr" hx-swap="delete"
+                  name="details" rows="3">{{ todo.details or "" }}</textarea>
+      </div>
+      {% if linked_items %}
+      <div class="detail-row">
+        <label>Linked Items</label>
+        <ul class="linked-items">
+          {% for item in linked_items %}
+          <li>{{ item.source }}: {{ item.subject or "(no subject)" }} [{{ item.id[:8] }}]</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+      <div class="detail-row detail-meta">
+        <span>Created: {{ todo.created_at }}</span>
+        <button class="btn-danger"
+                hx-post="/todos/{{ todo.id }}/delete"
+                hx-headers='{"Origin": "http://localhost"}'
+                hx-target="closest tr" hx-swap="delete">
+          Delete
+        </button>
+      </div>
+    </div>
+  </td>
+</tr>

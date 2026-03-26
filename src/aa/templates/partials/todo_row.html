@@ -1,0 +1,24 @@
+<tr class="todo-row" data-id="{{ todo.id }}">
+  <td class="col-check">
+    <input type="checkbox" class="todo-check" value="{{ todo.id }}" onchange="updateBulkToolbar()">
+  </td>
+  <td class="col-priority p{{ todo.priority }}"
+      hx-get="/todos/{{ todo.id }}/edit/priority" hx-target="this" hx-swap="innerHTML">
+    P{{ todo.priority }}
+  </td>
+  <td class="col-title" onclick="toggleDetail('{{ todo.id }}', this)">
+    {{ todo.title }}
+  </td>
+  <td class="col-due {% if todo.overdue %}overdue{% endif %}"
+      hx-get="/todos/{{ todo.id }}/edit/due_date" hx-target="this" hx-swap="innerHTML">
+    {{ todo.due_date or "" }}
+  </td>
+  <td class="col-category"
+      hx-get="/todos/{{ todo.id }}/edit/category" hx-target="this" hx-swap="innerHTML">
+    {{ todo.category or "" }}
+  </td>
+  <td class="col-project"
+      hx-get="/todos/{{ todo.id }}/edit/project" hx-target="this" hx-swap="innerHTML">
+    {{ todo.project or "" }}
+  </td>
+</tr>
