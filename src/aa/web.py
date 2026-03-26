@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import date
+from html import escape as html_escape
 from pathlib import Path
 from typing import Any
 
@@ -64,8 +66,7 @@ async def index(request: web.Request) -> web.Response:
     """
     response = aiohttp_jinja2.render_template("base.html", request, {})
     if "session" not in request.cookies:
-        import uuid
-        response.set_cookie("session", str(uuid.uuid4()), httponly=True)
+        response.set_cookie("session", str(uuid.uuid4()), httponly=True, samesite="Lax")
     return response
 
 
@@ -74,6 +75,9 @@ async def get_todos(request: web.Request) -> web.Response:
     db: Database = request.app["db"]
     q = request.query.get("q", "").strip() or None
     sort = request.query.get("sort", "priority,due_date")
+    dir_val = request.query.get("dir", "asc")
+    if dir_val == "desc":
+        sort = ",".join(f"-{col.strip()}" for col in sort.split(","))
 
     todos = await db.list_todos(status="pending", keyword=q, sort=sort)
     todos = [_todo_with_overdue(t) for t in todos]
@@ -94,7 +98,13 @@ async def patch_todo(request: web.Request) -> web.Response:
     data = await request.post()
     updates: dict[str, Any] = {}
     if "priority" in data:
-        updates["priority"] = int(data["priority"])
+        try:
+            p = int(data["priority"])
+            if not 1 <= p <= 5:
+                return web.Response(status=422, text="Priority must be 1-5")
+            updates["priority"] = p
+        except (ValueError, TypeError):
+            return web.Response(status=422, text="Invalid priority")
     if "due_date" in data:
         updates["due_date"] = data["due_date"] or None
     if "category" in data:
@@ -175,9 +185,16 @@ async def todo_new(request: web.Request) -> web.Response:
     if not title:
         return web.Response(status=422, text="Title required")
 
+    try:
+        priority = int(data.get("priority", 3))
+        if not 1 <= priority <= 5:
+            priority = 3
+    except (ValueError, TypeError):
+        priority = 3
+
     await db.insert_todo(
         title=title,
-        priority=int(data.get("priority", 3)),
+        priority=priority,
         due_date=data.get("due_date") or None,
         category=data.get("category") or None,
         project=data.get("project") or None,
@@ -241,18 +258,21 @@ async def get_edit_field(request: web.Request) -> web.Response:
             f'{options}</select>'
         )
     elif field == "due_date":
+        esc_val = html_escape(str(current or ""), quote=True)
         html = (
-            f'<input type="date" class="inline-edit" value="{current or ""}" '
+            f'<input type="date" class="inline-edit" value="{esc_val}" '
             f'hx-patch="/todos/{full_id}" hx-target="closest tr" hx-swap="outerHTML" '
             f'hx-trigger="change" name="due_date">'
         )
     elif field in ("category", "project"):
         # Get existing values for datalist
-        all_todos = await db.list_todos()
+        all_todos = await db.list_todos(status="pending")
         values = sorted(set(t.get(field) or "" for t in all_todos if t.get(field)))
-        datalist = f'<datalist id="dl-{field}">{"".join(f"<option>{v}</option>" for v in values)}</datalist>'
+        datalist_opts = "".join(f"<option>{html_escape(v)}</option>" for v in values)
+        datalist = f'<datalist id="dl-{field}">{datalist_opts}</datalist>'
+        esc_val = html_escape(str(current or ""), quote=True)
         html = (
-            f'<input type="text" class="inline-edit" value="{current or ""}" '
+            f'<input type="text" class="inline-edit" value="{esc_val}" '
             f'list="dl-{field}" '
             f'hx-patch="/todos/{full_id}" hx-target="closest tr" hx-swap="outerHTML" '
             f'hx-trigger="blur, keydown[key==\'Enter\']" name="{field}">'
@@ -307,7 +327,8 @@ async def chat(request: web.Request) -> web.StreamResponse:
             sse_lines = "\n".join(f"data: {line}" for line in chunk.split("\n"))
             await resp.write(f"event: text\n{sse_lines}\n\n".encode())
     except Exception as e:
-        await resp.write(f"event: error\ndata: {str(e)}\n\n".encode())
+        err_msg = str(e).replace("\n", " ")
+        await resp.write(f"event: error\ndata: {err_msg}\n\n".encode())
         return resp
 
     # Parse actions from complete text
@@ -376,10 +397,11 @@ def create_app(config: AppConfig, db: Database) -> web.Application:
     app["config"] = config  # type: ignore[assignment]
     app["db"] = db  # type: ignore[assignment]
 
-    # Setup Jinja2
+    # Setup Jinja2 with autoescaping enabled
     aiohttp_jinja2.setup(
         app,
         loader=jinja2.FileSystemLoader(str(TEMPLATES_DIR)),
+        autoescape=jinja2.select_autoescape(default_for_string=True, default=True),
     )
 
     # Routes

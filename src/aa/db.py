@@ -301,10 +301,14 @@ class Database:
         rows = await cursor.fetchall()
         return [_row_to_dict(r) for r in rows]
 
+    _TODO_UPDATABLE = {"title", "priority", "status", "category", "project", "due_date", "notes", "details", "completed_at"}
+
     async def update_todo(self, todo_id: str, **kwargs: Any) -> None:
         sets = []
         values = []
         for key, value in kwargs.items():
+            if key not in self._TODO_UPDATABLE:
+                raise ValueError(f"Cannot update todo field: {key}")
             sets.append(f"{key} = ?")
             values.append(value)
         if "status" in kwargs and kwargs["status"] == "done" and "completed_at" not in kwargs:

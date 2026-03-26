@@ -30,7 +30,6 @@
         <span>Created: {{ todo.created_at }}</span>
         <button class="btn-danger"
                 hx-post="/todos/{{ todo.id }}/delete"
-                hx-headers='{"Origin": "http://localhost"}'
                 hx-target="closest tr" hx-swap="delete">
           Delete
         </button>
