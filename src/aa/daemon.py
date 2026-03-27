@@ -276,6 +276,74 @@ class Daemon:
         if not untriaged:
             return
 
+        # Split notes-type items from regular items — notes get dedicated extraction
+        notes_items = [i for i in untriaged if i.get("type") == "notes"]
+        regular_items = [i for i in untriaged if i.get("type") != "notes"]
+
+        # Process notes items through NotesExtractor (purpose-built for todo extraction)
+        if notes_items:
+            await self._extract_notes_todos(notes_items)
+
+        # Process regular items through TriageEngine
+        if regular_items:
+            await self._triage_regular_items(regular_items)
+
+    async def _extract_notes_todos(self, items: list[dict]) -> None:
+        """Use NotesExtractor to extract todos from notes-type items."""
+        assert self._db is not None
+        from aa.ai.notes import NotesExtractor
+
+        extractor = NotesExtractor(
+            api_key=self.config.anthropic_api_key,
+            model=self.config.anthropic_model,
+        )
+
+        # Get existing todo titles to avoid exact duplicates
+        active_todos = await self._db.list_todos(status="pending")
+        existing_titles = {t["title"].lower().strip() for t in active_todos}
+
+        for item in items:
+            item_id = item.get("id")
+            body = item.get("body", "")
+            if not item_id or not body.strip():
+                await self._db.update_item_triage(item_id, 5, "fyi")
+                continue
+
+            try:
+                extracted = await extractor.extract_todos(body)
+            except Exception:
+                logger.exception("Notes extraction failed for %s", item_id)
+                await self._db.update_item_triage(item_id, 3, "fyi")
+                continue
+
+            created = 0
+            for todo_spec in extracted:
+                title = todo_spec.get("title", "").strip()
+                if not title:
+                    continue
+                # Skip exact duplicates of active todos
+                if title.lower().strip() in existing_titles:
+                    continue
+                todo_id = await self._db.insert_todo(
+                    title=title,
+                    priority=todo_spec.get("priority", 3),
+                    category=todo_spec.get("category"),
+                    project=todo_spec.get("project"),
+                    due_date=todo_spec.get("due_date"),
+                    details=todo_spec.get("notes"),
+                )
+                await self._db.link_todo(todo_id, item_id)
+                existing_titles.add(title.lower().strip())
+                created += 1
+
+            # Mark the item as triaged
+            await self._db.update_item_triage(item_id, 3, "fyi")
+            logger.info("Extracted %d todos from %s", created, item.get("subject", item_id))
+
+    async def _triage_regular_items(self, untriaged: list[dict]) -> None:
+        """Triage non-notes items through the standard TriageEngine."""
+        assert self._db is not None
+
         # Build context for triage
         rules = await self._db.list_rules()
         rule_texts = [r["rule"] for r in rules]
@@ -318,7 +386,7 @@ class Daemon:
             priority = result.get("priority", 3)
             action = result.get("action", "fyi")
 
-            # Store triage result (3 args: item_id, priority, action)
+            # Store triage result
             await self._db.update_item_triage(item_id, priority, action)
 
             # Create todo(s) if suggested
@@ -340,7 +408,6 @@ class Daemon:
 
             # Send notification if priority meets threshold
             if should_notify(priority, self.config.notification_threshold):
-                # Build an item-like dict with triage info for the notification
                 item = await self._db.get_item(item_id)
                 if item:
                     notification_text = format_notification(item)
