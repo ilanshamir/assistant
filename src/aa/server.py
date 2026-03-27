@@ -298,8 +298,10 @@ class RequestHandler:
 
         engine = AskEngine(api_key=self._api_key, model=self._model)
 
-        # Build context from DB
-        todos = await self.db.list_todos(status="pending")
+        # Build context from DB — include both pending and in_progress
+        pending = await self.db.list_todos(status="pending")
+        in_progress = await self.db.list_todos(status="in_progress")
+        todos = in_progress + pending
         inbox = await self.db.list_items(limit=20)
         calendar = await self.db.list_items(source="calendar")
 

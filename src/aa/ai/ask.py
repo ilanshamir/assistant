@@ -120,9 +120,11 @@ class AskEngine:
             for t in todos:
                 due = t.get("due_date") or "no due date"
                 prio = t.get("priority", "?")
+                status = t.get("status", "pending")
                 cat = t.get("category") or ""
                 proj = t.get("project") or ""
-                line = f"- [P{prio}] {t.get('title', 'Untitled')} (due: {due})"
+                status_tag = " [IN PROGRESS]" if status == "in_progress" else ""
+                line = f"- [P{prio}] {t.get('title', 'Untitled')} (due: {due}){status_tag}"
                 if cat:
                     line += f" @{cat}"
                 if proj:

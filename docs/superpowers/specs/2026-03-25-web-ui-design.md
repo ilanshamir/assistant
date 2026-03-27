@@ -4,6 +4,8 @@
 
 A task-management-focused web interface for the AA personal assistant. The UI is a dense, hybrid table (compact rows with expandable details) served via htmx + Jinja2 templates from within the existing daemon process. A resizable bottom chat panel provides multi-turn `/ask` functionality with actionable response buttons.
 
+Desktop-only, localhost-only. Mobile/responsive is out of scope.
+
 ## Design Decisions
 
 | Decision | Choice | Rationale |
@@ -28,9 +30,25 @@ daemon starts → asyncio loop
   └── auto-export (existing, unchanged)
 ```
 
+**Startup sequence:** The HTTP server starts using `aiohttp.web.AppRunner` + `TCPSite` (non-blocking), the same pattern as the existing `asyncio.start_unix_server`. Both servers are started *before* entering the poll loop. `aiohttp.web.run_app()` must NOT be used — it would take over the event loop.
+
+```python
+# Pseudocode for daemon.start()
+async def start(self):
+    await self._init_db()
+    await self._start_socket_server()   # existing
+    if self.config.web_enabled:
+        await self._start_web_server()  # new: AppRunner + TCPSite
+    await self._poll_loop()             # existing, blocks until shutdown
+```
+
 - One process to manage. No IPC overhead.
 - Web UI starts/stops with the daemon.
 - Enabled via `web_enabled` config flag or `--web` flag on `aa start`.
+
+### Security
+
+Even on localhost, CSRF is a concern (malicious sites can POST to localhost). All POST/PATCH routes check the `Origin` header — reject requests where Origin is not `http://localhost:{port}`. This is a simple middleware check, no tokens needed.
 
 ## Routes
 
@@ -44,7 +62,7 @@ daemon starts → asyncio loop
 | `/todos/<id>/delete` | POST | Soft delete |
 | `/todos/bulk` | POST | Bulk action (done, delete, set priority, set due date) |
 | `/todos/new` | POST | Create todo |
-| `/chat` | POST | Send message to ask engine, get streamed response |
+| `/chat` | POST | Send message to ask engine, get streamed response (SSE) |
 | `/chat/action` | POST | Execute action button (create todo, set due date, etc.) |
 
 ## The Table
@@ -53,7 +71,7 @@ daemon starts → asyncio loop
 
 `☐ | P | Title | Due | Category | Project`
 
-Default sort: priority ascending, then due date ascending (urgent + soonest first).
+Default sort: priority ascending, then due date ascending (urgent + soonest first). This requires adding `sort` parameter support to `db.list_todos()` — the current implementation sorts by `priority, created_at`.
 
 ### Inline Editing
 
@@ -63,6 +81,8 @@ Default sort: priority ascending, then due date ascending (urgent + soonest firs
 - **Title** — edited in the expanded detail view, not inline (too disruptive to dense layout).
 
 All inline edits: cell click swaps to input via htmx, blur/enter/select sends `PATCH /todos/<id>`, server returns updated row partial.
+
+**Sort-order changes:** When an inline edit changes priority or due date, the PATCH response includes an `HX-Trigger: refreshTable` header. The `<tbody>` listens via `hx-trigger="refreshTable from:body"` and re-fetches `GET /todos` to re-sort the full table.
 
 ### Row Expansion
 
@@ -74,18 +94,29 @@ Expanded view shows:
 - Created date
 - Delete button
 
+### Creating Todos
+
+A `+ New` button above the table inserts an empty row at the top with inline inputs for title, priority, due date, category, and project. Press Enter or click a "Save" button to `POST /todos/new`. Press Escape to cancel.
+
 ### Bulk Actions
 
 - Hidden by default.
 - Appears as a fixed toolbar above the chat panel when 1+ checkboxes are selected.
 - Shows: `"N selected: [Done] [Delete] [Priority ▾] [Due Date ▾]"`
 - Actions send `POST /todos/bulk` with selected IDs + action.
-- Toolbar disappears after action completes and table refreshes.
+- Response includes `HX-Trigger: refreshTable` to re-fetch the table body.
+- Toolbar hidden via JS after action completes.
 
 ### Search & Sort
 
-- Single search input above the table. Filters on keyup (debounced 300ms) via htmx. Searches title, category, project, details.
-- Click column headers to toggle asc/desc sort. Server-side sort, htmx replaces table body.
+- Single search input above the table. Filters on keyup (debounced 300ms) via htmx, targeting the `<tbody>`. Searches title, category, project, details. This requires extending `db.list_todos()` keyword search to also match `category` and `project` fields.
+- Click column headers to toggle asc/desc sort. Server-side sort via query params (`?sort=priority&dir=asc`), htmx replaces table body.
+
+### Error Handling
+
+- Inline edit failures: the PATCH response returns a 422 with the original cell value, htmx swaps it back. A brief toast notification appears at top-right ("Failed to update priority").
+- Bulk action partial failures: response returns success count + failures as a toast.
+- Network errors: htmx's built-in `htmx:responseError` event triggers a generic toast.
 
 ## Chat Panel
 
@@ -98,27 +129,78 @@ Expanded view shows:
 ### Conversation Flow
 
 1. User types question → `POST /chat` with message + conversation history
-2. Server calls `AskEngine` with full context (todos, inbox, calendar) + conversation history
-3. Response streams back via SSE (Server-Sent Events) — text appears incrementally
-4. Server parses AI response for structured action blocks, renders clickable buttons
+2. Server calls `AskEngine.ask_stream()` with full context (todos, inbox, calendar) + conversation history
+3. Response streams back via SSE with typed events
+4. Client JS accumulates text events, renders action events as buttons
 
-### Action Buttons
+### Streaming Protocol (SSE)
 
-The ask engine's system prompt is extended to emit structured actions alongside natural language. The server parses these and renders clickable buttons in the chat:
+The `POST /chat` endpoint returns an SSE stream with typed events:
 
 ```
-[Create Todo: "Review compliance docs" P2 due Mar 28]
-[Set Priority: todo abc123 → P1]
-[Mark Done: todo def456]
+event: text
+data: Here's what I recommend
+
+event: text
+data:  for today...
+
+event: action
+data: {"type": "create_todo", "title": "Review compliance docs", "priority": 2, "due": "2026-03-28"}
+
+event: action
+data: {"type": "mark_done", "todo_id": "abc12345"}
+
+event: action
+data: {"type": "set_priority", "todo_id": "def45678", "priority": 1}
+
+event: done
+data: {}
 ```
 
-Clicking a button → `POST /chat/action` → executes the command → returns confirmation message in chat + refreshes the todo table via htmx.
+Client-side JS (minimal, ~50 lines alongside htmx):
+- `text` events: append to current message bubble
+- `action` events: render as clickable buttons below the message
+- `done` event: close the EventSource, enable input
+
+### Action Button Format
+
+The ask engine's system prompt is extended to emit structured JSON action blocks in a fenced section:
+
+```
+Your natural language response here...
+
+\```actions
+[{"type": "create_todo", "title": "Review compliance docs", "priority": 2, "due": "2026-03-28"}]
+\```
+```
+
+The server parses the fenced `actions` block from the completed response, strips it from the displayed text, and sends each action as a separate SSE `action` event. Supported action types:
+
+| Type | Fields | Maps to |
+|------|--------|---------|
+| `create_todo` | `title`, `priority?`, `due?`, `category?`, `project?` | `POST /todos/new` |
+| `mark_done` | `todo_id` | `POST /todos/<id>/done` |
+| `set_priority` | `todo_id`, `priority` | `PATCH /todos/<id>` |
+| `set_due` | `todo_id`, `due` | `PATCH /todos/<id>` |
+| `delete_todo` | `todo_id` | `POST /todos/<id>/delete` |
+
+Clicking a button → `POST /chat/action` with the action JSON → executes the command → returns confirmation message as a new chat bubble + sends `HX-Trigger: refreshTable` to update the todo table.
+
+**Streaming implementation:** Add `ask_stream()` method to `AskEngine` using `self._client.messages.stream()` (Anthropic SDK streaming API). This yields incremental text chunks. The server forwards chunks as SSE `text` events. After the stream completes, the server parses the full response for the `actions` fence and emits `action` events.
 
 ### Session Management
 
-- Conversation history held in server memory (dict keyed by session cookie).
+- Server generates a session ID via `Set-Cookie` on first `GET /` request.
+- Conversation history stored in server memory (dict keyed by session ID).
+- Max 10 sessions with LRU eviction.
 - Resets on browser refresh or explicit clear button.
 - No persistence to DB — ephemeral by design.
+
+### Error Handling
+
+- API key missing/invalid: chat panel shows an inline error message.
+- Rate limit / API error: SSE stream sends an `event: error` with message, client renders it.
+- Unparseable action block: actions silently omitted, text response displayed normally.
 
 ## File Organization
 
@@ -126,7 +208,7 @@ Clicking a button → `POST /chat/action` → executes the command → returns c
 
 ```
 src/aa/
-├── web.py                    # aiohttp routes, startup/shutdown
+├── web.py                    # aiohttp routes, startup/shutdown, CSRF middleware
 ├── templates/
 │   ├── base.html             # page shell (table + chat panel + bulk toolbar)
 │   └── partials/
@@ -136,7 +218,8 @@ src/aa/
 │       ├── chat_message.html # single chat message bubble
 │       └── bulk_toolbar.html # bulk action bar
 └── static/
-    └── style.css             # all styles (single file)
+    ├── style.css             # all styles (single file)
+    └── htmx.min.js           # vendored htmx (no CDN dependency)
 ```
 
 ### New Dependencies
@@ -144,19 +227,20 @@ src/aa/
 - `aiohttp>=3.9` — async HTTP server
 - `jinja2>=3.1` — template engine
 - `aiohttp-jinja2>=1.6` — aiohttp + Jinja2 integration
-- `aiohttp-sse>=2.1` — server-sent events for chat streaming
+
+Note: SSE is implemented directly with `aiohttp.web.StreamResponse` — no `aiohttp-sse` dependency needed.
 
 ### Changes to Existing Files
 
 | File | Change |
 |------|--------|
-| `daemon.py` | Add HTTP server startup alongside Unix socket server |
+| `daemon.py` | Add `_start_web_server()` using `AppRunner`+`TCPSite`, called before poll loop |
 | `config.py` | Add `web_port: int = 8080` and `web_enabled: bool = False` |
 | `cli.py` | Add `--web` flag to `aa start` |
-| `ai/ask.py` | Extend system prompt for structured actions; add conversation history support |
+| `ai/ask.py` | Add `ask_stream()` method using SDK streaming; extend system prompt for structured action blocks; add conversation history parameter |
+| `db.py` | Add `sort` parameter to `list_todos()`; extend keyword search to include `category` and `project` |
 
 ### No Changes To
 
-- `db.py` — existing query methods are sufficient
 - `server.py` — Unix socket protocol stays as-is for CLI
 - All connectors — unchanged

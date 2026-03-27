@@ -79,7 +79,9 @@ async def get_todos(request: web.Request) -> web.Response:
     if dir_val == "desc":
         sort = ",".join(f"-{col.strip()}" for col in sort.split(","))
 
-    todos = await db.list_todos(status="pending", keyword=q, sort=sort)
+    pending = await db.list_todos(status="pending", keyword=q, sort=sort)
+    in_progress = await db.list_todos(status="in_progress", keyword=q, sort=sort)
+    todos = in_progress + pending
     todos = [_todo_with_overdue(t) for t in todos]
 
     return aiohttp_jinja2.render_template(
@@ -312,8 +314,10 @@ async def chat(request: web.Request) -> web.StreamResponse:
     message = data.get("message", "")
     history = data.get("history", [])
 
-    # Build context
-    todos = await db.list_todos(status="pending")
+    # Build context — include both pending and in_progress todos
+    pending = await db.list_todos(status="pending")
+    in_progress = await db.list_todos(status="in_progress")
+    todos = in_progress + pending
     inbox = await db.list_items(limit=20)
     calendar = await db.list_items(source="calendar")
     context = {"todos": todos, "inbox": inbox, "calendar": calendar}
