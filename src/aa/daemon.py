@@ -298,9 +298,10 @@ class Daemon:
             model=self.config.anthropic_model,
         )
 
-        # Get existing todo titles to avoid exact duplicates
-        active_todos = await self._db.list_todos(status="pending")
-        existing_titles = {t["title"].lower().strip() for t in active_todos}
+        # Get ALL todo titles (pending, in_progress, done, deleted) to avoid
+        # re-creating todos that were completed, deleted, or already exist
+        all_todos = await self._db.list_todos(include_deleted=True)
+        existing_titles = {t["title"].lower().strip() for t in all_todos}
 
         for item in items:
             item_id = item.get("id")
@@ -321,7 +322,7 @@ class Daemon:
                 title = todo_spec.get("title", "").strip()
                 if not title:
                     continue
-                # Skip exact duplicates of active todos
+                # Skip if any todo with this title already exists (any status)
                 if title.lower().strip() in existing_titles:
                     continue
                 todo_id = await self._db.insert_todo(
@@ -373,6 +374,10 @@ class Daemon:
             "calendar_today": calendar_items,
         }
 
+        # Collect all existing todo titles to prevent duplicates server-side
+        all_todos = await self._db.list_todos(include_deleted=True)
+        existing_titles = {t["title"].lower().strip() for t in all_todos}
+
         try:
             results = await self._engine.triage(untriaged, context)
         except Exception:
@@ -390,7 +395,7 @@ class Daemon:
             # Store triage result
             await self._db.update_item_triage(item_id, priority, action)
 
-            # Create todo(s) if suggested
+            # Create todo(s) if suggested, skipping duplicates
             todos_list = result.get("todos") or []
             if not todos_list and result.get("create_todo") and result.get("todo_title"):
                 todos_list = [{"title": result["todo_title"], "priority": priority}]
@@ -398,9 +403,12 @@ class Daemon:
                 todo_title = todo_spec.get("title")
                 if not todo_title:
                     continue
+                if todo_title.lower().strip() in existing_titles:
+                    continue
                 todo_prio = todo_spec.get("priority", priority)
                 todo_id = await self._db.insert_todo(title=todo_title, priority=todo_prio, reviewed=False)
                 await self._db.link_todo(todo_id, item_id)
+                existing_titles.add(todo_title.lower().strip())
 
             # Store draft if present
             draft_text = result.get("draft")
