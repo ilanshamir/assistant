@@ -117,6 +117,36 @@ th.sortable:hover { color: var(--accent); }
 /* Overdue */
 .overdue { color: var(--danger); }
 
+/* New / unreviewed badge */
+.todo-new { border-left: 3px solid var(--accent); }
+.badge-new {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: bold;
+  color: var(--accent);
+  background: rgba(74, 158, 255, 0.15);
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-right: 4px;
+}
+
+/* In progress badge */
+.todo-inprogress { background: rgba(46, 204, 113, 0.05); }
+.badge-inprog {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: bold;
+  color: var(--success);
+  background: rgba(46, 204, 113, 0.15);
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-right: 4px;
+}
+
 /* Inline edit inputs */
 .inline-edit {
   background: var(--bg);
@@ -166,6 +196,40 @@ th.sortable:hover { color: var(--accent); }
 .linked-items li {
   padding: 2px 0;
   color: var(--text-dim);
+  font-size: 12px;
+}
+.detail-actions {
+  display: flex;
+  gap: 8px;
+}
+.btn-review {
+  background: rgba(74, 158, 255, 0.15);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 3px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+.btn-progress {
+  background: rgba(46, 204, 113, 0.15);
+  color: var(--success);
+  border: 1px solid var(--success);
+  padding: 3px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+.btn-done {
+  background: var(--success);
+  color: #fff;
+  border: none;
+  padding: 3px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
   font-size: 12px;
 }
 .btn-danger {

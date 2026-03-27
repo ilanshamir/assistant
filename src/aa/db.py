@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS todos (
     due_date TEXT,
     notes TEXT,
     details TEXT,
+    reviewed INTEGER DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     completed_at TEXT
 );
@@ -123,6 +124,8 @@ class Database:
             await self.db.execute("ALTER TABLE todos ADD COLUMN details TEXT")
         if "notes" not in columns:
             await self.db.execute("ALTER TABLE todos ADD COLUMN notes TEXT")
+        if "reviewed" not in columns:
+            await self.db.execute("ALTER TABLE todos ADD COLUMN reviewed INTEGER DEFAULT 1")
 
     async def close(self) -> None:
         """Close the database connection."""
@@ -232,11 +235,12 @@ class Database:
         project: str | None = None,
         due_date: str | None = None,
         details: str | None = None,
+        reviewed: bool = True,
     ) -> str:
         todo_id = _new_id()
         await self.db.execute(
-            "INSERT INTO todos (id, title, priority, category, project, due_date, details) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (todo_id, title, priority, category, project, due_date, details),
+            "INSERT INTO todos (id, title, priority, category, project, due_date, details, reviewed) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (todo_id, title, priority, category, project, due_date, details, int(reviewed)),
         )
         await self.db.commit()
         return todo_id
@@ -302,7 +306,7 @@ class Database:
         rows = await cursor.fetchall()
         return [_row_to_dict(r) for r in rows]
 
-    _TODO_UPDATABLE = {"title", "priority", "status", "category", "project", "due_date", "notes", "details", "completed_at"}
+    _TODO_UPDATABLE = {"title", "priority", "status", "category", "project", "due_date", "notes", "details", "completed_at", "reviewed"}
 
     async def update_todo(self, todo_id: str, **kwargs: Any) -> None:
         sets = []

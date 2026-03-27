@@ -331,6 +331,7 @@ class Daemon:
                     project=todo_spec.get("project"),
                     due_date=todo_spec.get("due_date"),
                     details=todo_spec.get("notes"),
+                    reviewed=False,
                 )
                 await self._db.link_todo(todo_id, item_id)
                 existing_titles.add(title.lower().strip())
@@ -398,7 +399,7 @@ class Daemon:
                 if not todo_title:
                     continue
                 todo_prio = todo_spec.get("priority", priority)
-                todo_id = await self._db.insert_todo(title=todo_title, priority=todo_prio)
+                todo_id = await self._db.insert_todo(title=todo_title, priority=todo_prio, reviewed=False)
                 await self._db.link_todo(todo_id, item_id)
 
             # Store draft if present

@@ -115,6 +115,10 @@ async def patch_todo(request: web.Request) -> web.Response:
         updates["title"] = data["title"]
     if "details" in data:
         updates["details"] = data["details"] or None
+    if "reviewed" in data:
+        updates["reviewed"] = int(data["reviewed"])
+    if "status" in data and data["status"] in ("pending", "in_progress", "done"):
+        updates["status"] = data["status"]
 
     if updates:
         await db.update_todo(full_id, **updates)
@@ -228,6 +232,10 @@ async def todo_bulk(request: web.Request) -> web.Response:
             await db.update_todo(full_id, priority=int(value))
         elif action == "due" and value:
             await db.update_todo(full_id, due_date=value)
+        elif action == "review":
+            await db.update_todo(full_id, reviewed=1)
+        elif action == "in_progress":
+            await db.update_todo(full_id, status="in_progress")
 
     response = web.Response(status=200, text="")
     response.headers["HX-Trigger"] = "refreshTable"

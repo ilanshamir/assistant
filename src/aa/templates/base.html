@@ -42,6 +42,8 @@
   <!-- Bulk action toolbar -->
   <div id="bulk-toolbar" class="bulk-toolbar hidden">
     <span id="bulk-count">0 selected</span>
+    <button onclick="bulkAction('review')">Review</button>
+    <button onclick="bulkAction('in_progress')">In Progress</button>
     <button onclick="bulkAction('done')">Done</button>
     <button onclick="bulkAction('delete')">Delete</button>
     <select id="bulk-priority" onchange="bulkAction('priority')">

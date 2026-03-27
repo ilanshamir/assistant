@@ -26,8 +26,32 @@
         </ul>
       </div>
       {% endif %}
+      <div class="detail-row detail-actions">
+        {% if not todo.reviewed %}
+        <button class="btn-review"
+                hx-patch="/todos/{{ todo.id }}" hx-vals='{"reviewed": "1"}'
+                hx-target="closest tr" hx-swap="delete"
+                onclick="htmx.trigger(document.body, 'refreshTable')">
+          Mark Reviewed
+        </button>
+        {% endif %}
+        {% if todo.status == 'pending' %}
+        <button class="btn-progress"
+                hx-patch="/todos/{{ todo.id }}" hx-vals='{"status": "in_progress"}'
+                hx-target="closest tr" hx-swap="delete"
+                onclick="htmx.trigger(document.body, 'refreshTable')">
+          Start
+        </button>
+        {% elif todo.status == 'in_progress' %}
+        <button class="btn-done"
+                hx-post="/todos/{{ todo.id }}/done"
+                hx-target="closest tr" hx-swap="delete">
+          Done
+        </button>
+        {% endif %}
+      </div>
       <div class="detail-row detail-meta">
-        <span>Created: {{ todo.created_at }}</span>
+        <span>Created: {{ todo.created_at }}{% if todo.status == 'in_progress' %} | Status: in progress{% endif %}</span>
         <button class="btn-danger"
                 hx-post="/todos/{{ todo.id }}/delete"
                 hx-target="closest tr" hx-swap="delete">
