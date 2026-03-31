@@ -299,9 +299,23 @@ class Daemon:
         )
 
         # Get ALL todo titles (pending, in_progress, done, deleted) to avoid
-        # re-creating todos that were completed, deleted, or already exist
+        # re-creating todos that were completed, deleted, or already exist.
+        # Use fuzzy matching because the AI may produce slightly different
+        # wording each time it processes the same file.
+        from difflib import SequenceMatcher
+
         all_todos = await self._db.list_todos(include_deleted=True)
-        existing_titles = {t["title"].lower().strip() for t in all_todos}
+        existing_titles = [t["title"].lower().strip() for t in all_todos]
+
+        def _is_duplicate(title: str) -> bool:
+            """Check if title is a fuzzy match against any existing todo."""
+            t = title.lower().strip()
+            for existing in existing_titles:
+                if existing == t:
+                    return True
+                if SequenceMatcher(None, existing, t).ratio() > 0.8:
+                    return True
+            return False
 
         for item in items:
             item_id = item.get("id")
@@ -322,8 +336,7 @@ class Daemon:
                 title = todo_spec.get("title", "").strip()
                 if not title:
                     continue
-                # Skip if any todo with this title already exists (any status)
-                if title.lower().strip() in existing_titles:
+                if _is_duplicate(title):
                     continue
                 todo_id = await self._db.insert_todo(
                     title=title,
@@ -335,7 +348,7 @@ class Daemon:
                     reviewed=False,
                 )
                 await self._db.link_todo(todo_id, item_id)
-                existing_titles.add(title.lower().strip())
+                existing_titles.append(title.lower().strip())
                 created += 1
 
             # Mark the item as triaged
@@ -374,9 +387,20 @@ class Daemon:
             "calendar_today": calendar_items,
         }
 
-        # Collect all existing todo titles to prevent duplicates server-side
+        # Collect all existing todo titles for fuzzy dedup
+        from difflib import SequenceMatcher
+
         all_todos = await self._db.list_todos(include_deleted=True)
-        existing_titles = {t["title"].lower().strip() for t in all_todos}
+        existing_titles = [t["title"].lower().strip() for t in all_todos]
+
+        def _is_duplicate(title: str) -> bool:
+            t = title.lower().strip()
+            for existing in existing_titles:
+                if existing == t:
+                    return True
+                if SequenceMatcher(None, existing, t).ratio() > 0.8:
+                    return True
+            return False
 
         try:
             results = await self._engine.triage(untriaged, context)
@@ -403,12 +427,12 @@ class Daemon:
                 todo_title = todo_spec.get("title")
                 if not todo_title:
                     continue
-                if todo_title.lower().strip() in existing_titles:
+                if _is_duplicate(todo_title):
                     continue
                 todo_prio = todo_spec.get("priority", priority)
                 todo_id = await self._db.insert_todo(title=todo_title, priority=todo_prio, reviewed=False)
                 await self._db.link_todo(todo_id, item_id)
-                existing_titles.add(todo_title.lower().strip())
+                existing_titles.append(todo_title.lower().strip())
 
             # Store draft if present
             draft_text = result.get("draft")
