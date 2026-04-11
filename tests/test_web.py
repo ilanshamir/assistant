@@ -214,3 +214,47 @@ async def test_bulk_priority(web_client, db):
     assert resp.status == 200
     assert (await db.get_todo(id1))["priority"] == 1
     assert (await db.get_todo(id2))["priority"] == 1
+
+
+@pytest.mark.asyncio
+async def test_bulk_category(web_client, db):
+    id1 = await db.insert_todo(title="A", priority=3)
+    id2 = await db.insert_todo(title="B", priority=3)
+    resp = await web_client.post(
+        "/todos/bulk",
+        data={"ids": f"{id1},{id2}", "action": "category", "value": "work"},
+        headers={"Origin": "http://localhost"},
+    )
+    assert resp.status == 200
+    assert (await db.get_todo(id1))["category"] == "work"
+    assert (await db.get_todo(id2))["category"] == "work"
+
+
+@pytest.mark.asyncio
+async def test_bulk_project(web_client, db):
+    id1 = await db.insert_todo(title="A", priority=3)
+    id2 = await db.insert_todo(title="B", priority=3)
+    resp = await web_client.post(
+        "/todos/bulk",
+        data={"ids": f"{id1},{id2}", "action": "project", "value": "Q3 launch"},
+        headers={"Origin": "http://localhost"},
+    )
+    assert resp.status == 200
+    assert (await db.get_todo(id1))["project"] == "Q3 launch"
+    assert (await db.get_todo(id2))["project"] == "Q3 launch"
+
+
+@pytest.mark.asyncio
+async def test_index_datalists_populated(web_client, db):
+    await db.insert_todo(title="A", priority=3, category="work", project="Q3")
+    await db.insert_todo(title="B", priority=3, category="home", project="garden")
+    resp = await web_client.get("/")
+    assert resp.status == 200
+    text = await resp.text()
+    # Datalist options for category and project should be rendered
+    assert 'id="dl-bulk-category"' in text
+    assert 'id="dl-bulk-project"' in text
+    assert '<option value="work">' in text
+    assert '<option value="home">' in text
+    assert '<option value="Q3">' in text
+    assert '<option value="garden">' in text

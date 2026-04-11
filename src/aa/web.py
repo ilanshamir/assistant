@@ -64,7 +64,13 @@ async def index(request: web.Request) -> web.Response:
     request) which is simpler and avoids memory management. The session cookie
     is set for future use if server-side state is needed.
     """
-    response = aiohttp_jinja2.render_template("base.html", request, {})
+    db: Database = request.app["db"]
+    all_todos = await db.list_todos(status=["pending", "in_progress"])
+    categories = sorted({t["category"] for t in all_todos if t.get("category")})
+    projects = sorted({t["project"] for t in all_todos if t.get("project")})
+    response = aiohttp_jinja2.render_template(
+        "base.html", request, {"categories": categories, "projects": projects}
+    )
     if "session" not in request.cookies:
         response.set_cookie("session", str(uuid.uuid4()), httponly=True, samesite="Lax")
     return response
@@ -234,6 +240,10 @@ async def todo_bulk(request: web.Request) -> web.Response:
             await db.update_todo(full_id, priority=int(value))
         elif action == "due" and value:
             await db.update_todo(full_id, due_date=value)
+        elif action == "category" and value:
+            await db.update_todo(full_id, category=value)
+        elif action == "project" and value:
+            await db.update_todo(full_id, project=value)
         elif action == "review":
             await db.update_todo(full_id, reviewed=1)
         elif action == "in_progress":

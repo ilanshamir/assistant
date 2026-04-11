@@ -54,6 +54,18 @@ function bulkAction(action) {
     if (!val) return;
     body += "&value=" + val;
     document.getElementById("bulk-due").value = "";
+  } else if (action === "category" || action === "project") {
+    const el = document.getElementById("bulk-" + action);
+    const val = el.value.trim();
+    if (!val) return;
+    body += "&value=" + encodeURIComponent(val);
+    el.value = "";
+    const dl = document.getElementById("dl-bulk-" + action);
+    if (dl && !dl.querySelector(`option[value="${CSS.escape(val)}"]`)) {
+      const opt = document.createElement("option");
+      opt.value = val;
+      dl.appendChild(opt);
+    }
   }
 
   fetch("/todos/bulk", {

@@ -56,6 +56,16 @@
       <option value="5">P5</option>
     </select>
     <input type="date" id="bulk-due" onchange="bulkAction('due')">
+    <input type="text" id="bulk-category" list="dl-bulk-category"
+           placeholder="Category" onkeydown="if(event.key==='Enter')bulkAction('category')">
+    <input type="text" id="bulk-project" list="dl-bulk-project"
+           placeholder="Project" onkeydown="if(event.key==='Enter')bulkAction('project')">
+    <datalist id="dl-bulk-category">
+      {% for c in categories %}<option value="{{ c }}">{% endfor %}
+    </datalist>
+    <datalist id="dl-bulk-project">
+      {% for p in projects %}<option value="{{ p }}">{% endfor %}
+    </datalist>
   </div>
 
   <!-- Chat panel -->
