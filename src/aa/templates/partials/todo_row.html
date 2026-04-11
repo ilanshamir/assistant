@@ -7,8 +7,12 @@
       hx-trigger="click once">
     P{{ todo.priority }}
   </td>
+  <td class="col-status">
+    {% if not todo.reviewed %}<span class="badge-new">new</span>{% endif %}
+    {% if todo.status == 'in_progress' %}<span class="badge-inprog">in progress</span>{% endif %}
+  </td>
   <td class="col-title" onclick="toggleDetail('{{ todo.id }}', this)">
-    {% if not todo.reviewed %}<span class="badge-new">new</span> {% endif %}{% if todo.status == 'in_progress' %}<span class="badge-inprog">in progress</span> {% endif %}{{ todo.title }}
+    {{ todo.title }}
   </td>
   <td class="col-due {% if todo.overdue %}overdue{% endif %}"
       hx-get="/todos/{{ todo.id }}/edit/due_date" hx-target="this" hx-swap="innerHTML"

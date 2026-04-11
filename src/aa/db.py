@@ -252,7 +252,7 @@ class Database:
 
     async def list_todos(
         self,
-        status: str | None = None,
+        status: str | list[str] | None = None,
         include_deleted: bool = False,
         category: str | None = None,
         project: str | None = None,
@@ -267,8 +267,13 @@ class Database:
         if not include_deleted:
             query += " AND status != 'deleted'"
         if status:
-            query += " AND status = ?"
-            params.append(status)
+            if isinstance(status, (list, tuple)):
+                placeholders = ",".join("?" * len(status))
+                query += f" AND status IN ({placeholders})"
+                params.extend(status)
+            else:
+                query += " AND status = ?"
+                params.append(status)
         if category:
             query += " AND category = ?"
             params.append(category)
@@ -289,13 +294,21 @@ class Database:
             query += " AND due_date IS NOT NULL AND due_date <= ?"
             params.append(due_before)
         if sort:
-            allowed = {"priority", "due_date", "created_at", "title", "category", "project"}
+            allowed = {"priority", "due_date", "created_at", "title", "category", "project", "status"}
             parts = []
             for part in sort.split(","):
                 col = part.strip().lstrip("-")
                 if col in allowed:
                     direction = "DESC" if part.strip().startswith("-") else "ASC"
-                    parts.append(f"{col} IS NULL, {col} {direction}")
+                    if col == "status":
+                        # Rank: in_progress (0) < new/unreviewed (1) < reviewed (2)
+                        expr = (
+                            "CASE WHEN status = 'in_progress' THEN 0 "
+                            "WHEN reviewed = 0 THEN 1 ELSE 2 END"
+                        )
+                        parts.append(f"{expr} {direction}")
+                    else:
+                        parts.append(f"{col} IS NULL, {col} {direction}")
             if parts:
                 query += " ORDER BY " + ", ".join(parts)
             else:

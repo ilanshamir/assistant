@@ -79,9 +79,9 @@ async def get_todos(request: web.Request) -> web.Response:
     if dir_val == "desc":
         sort = ",".join(f"-{col.strip()}" for col in sort.split(","))
 
-    pending = await db.list_todos(status="pending", keyword=q, sort=sort)
-    in_progress = await db.list_todos(status="in_progress", keyword=q, sort=sort)
-    todos = in_progress + pending
+    todos = await db.list_todos(
+        status=["pending", "in_progress"], keyword=q, sort=sort
+    )
     todos = [_todo_with_overdue(t) for t in todos]
 
     return aiohttp_jinja2.render_template(

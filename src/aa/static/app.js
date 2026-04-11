@@ -86,6 +86,7 @@ function showNewTodoRow() {
       <option value="1">P1</option><option value="2">P2</option>
       <option value="3" selected>P3</option><option value="4">P4</option><option value="5">P5</option>
     </select></td>
+    <td></td>
     <td><input class="inline-edit" id="new-title" placeholder="Title..." autofocus></td>
     <td><input class="inline-edit" id="new-due" type="date"></td>
     <td><input class="inline-edit" id="new-category" placeholder="Category"></td>
