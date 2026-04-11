@@ -12,7 +12,7 @@
     <h1>AA</h1>
     <div class="search-bar">
       <input type="search" id="search" name="q" placeholder="Search todos..."
-             hx-get="/todos" hx-trigger="keyup changed delay:300ms"
+             hx-get="/todos" hx-trigger="input changed delay:300ms, search"
              hx-target="#todo-tbody" hx-include="[name='sort'],[name='dir']">
     </div>
     <button id="new-todo-btn" onclick="showNewTodoRow()">+ New</button>
