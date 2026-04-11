@@ -152,6 +152,19 @@ async def test_todos_sort_by_query(web_client, db):
 
 
 @pytest.mark.asyncio
+async def test_todos_sort_mixed_direction(web_client, db):
+    # Category asc, within each category sort project descending.
+    await db.insert_todo(title="Alpha", priority=3, category="work", project="zeta")
+    await db.insert_todo(title="Beta", priority=3, category="work", project="apex")
+    await db.insert_todo(title="Gamma", priority=3, category="home", project="garden")
+    resp = await web_client.get("/todos?sort=category,-project&dir=asc")
+    assert resp.status == 200
+    text = await resp.text()
+    # Home comes first (category asc), then within work: zeta before apex (project desc)
+    assert text.index("Gamma") < text.index("Alpha") < text.index("Beta")
+
+
+@pytest.mark.asyncio
 async def test_todos_search(web_client, db):
     await db.insert_todo(title="Buy groceries", priority=3)
     await db.insert_todo(title="Review PR", priority=2)

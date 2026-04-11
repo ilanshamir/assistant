@@ -1,19 +1,54 @@
 /* AA Web UI - client-side logic */
 
 // --- Sort state ---
-let currentSort = "priority,due_date";
-let currentDir = "asc";
+// sortChain is an ordered list of {col, dir} entries. Click replaces the chain
+// (or toggles direction if clicking the sole primary column). Shift-click
+// appends a column or toggles its direction in place.
+let sortChain = [{col: "priority", dir: "asc"}, {col: "due_date", dir: "asc"}];
 
-function sortBy(col) {
-  if (currentSort === col) {
-    currentDir = currentDir === "asc" ? "desc" : "asc";
+function sortBy(e, col) {
+  const isShift = e && e.shiftKey;
+  if (isShift) {
+    const idx = sortChain.findIndex(s => s.col === col);
+    if (idx >= 0) {
+      sortChain[idx].dir = sortChain[idx].dir === "asc" ? "desc" : "asc";
+    } else {
+      sortChain.push({col, dir: "asc"});
+    }
   } else {
-    currentSort = col;
-    currentDir = "asc";
+    if (sortChain.length === 1 && sortChain[0].col === col) {
+      sortChain[0].dir = sortChain[0].dir === "asc" ? "desc" : "asc";
+    } else {
+      sortChain = [{col, dir: "asc"}];
+    }
   }
-  document.getElementById("sort-field").value = currentSort;
-  document.getElementById("dir-field").value = currentDir;
+  applySortChain();
+}
+
+function serializeSortChain() {
+  return sortChain.map(s => (s.dir === "desc" ? "-" : "") + s.col).join(",");
+}
+
+function applySortChain() {
+  document.getElementById("sort-field").value = serializeSortChain();
+  // dir-field stays "asc" — directions are encoded per-column in sort-field.
+  document.getElementById("dir-field").value = "asc";
+  updateSortIndicators();
   htmx.trigger("#todo-tbody", "refreshTable");
+}
+
+function updateSortIndicators() {
+  document.querySelectorAll("#todo-table thead th .sort-indicator").forEach(el => el.remove());
+  const multi = sortChain.length > 1;
+  sortChain.forEach((entry, idx) => {
+    const th = document.querySelector(`#todo-table thead th[data-sort="${entry.col}"]`);
+    if (!th) return;
+    const sup = document.createElement("span");
+    sup.className = "sort-indicator";
+    const arrow = entry.dir === "desc" ? "↓" : "↑";
+    sup.textContent = " " + arrow + (multi ? (idx + 1) : "");
+    th.appendChild(sup);
+  });
 }
 
 // --- Select all ---
@@ -93,18 +128,19 @@ function showNewTodoRow() {
   const tr = document.createElement("tr");
   tr.className = "new-todo-row";
   tr.innerHTML = `
-    <td></td>
-    <td><select class="inline-edit" id="new-priority">
+    <td class="col-check"></td>
+    <td class="col-priority"><select class="inline-edit" id="new-priority">
       <option value="1">P1</option><option value="2">P2</option>
       <option value="3" selected>P3</option><option value="4">P4</option><option value="5">P5</option>
     </select></td>
-    <td></td>
-    <td><input class="inline-edit" id="new-title" placeholder="Title..." autofocus></td>
-    <td><input class="inline-edit" id="new-due" type="date"></td>
-    <td><input class="inline-edit" id="new-category" placeholder="Category"></td>
-    <td><input class="inline-edit" id="new-project" placeholder="Project"></td>
+    <td class="col-status"></td>
+    <td class="col-title"><input class="inline-edit" id="new-title" placeholder="Title..." autofocus></td>
+    <td class="col-due"><input class="inline-edit" id="new-due" type="date"></td>
+    <td class="col-category"><input class="inline-edit" id="new-category" placeholder="Category"></td>
+    <td class="col-project"><input class="inline-edit" id="new-project" placeholder="Project"></td>
   `;
   tbody.insertBefore(tr, tbody.firstChild);
+  reorderRowIfNeeded(tr);
 
   const titleInput = document.getElementById("new-title");
   titleInput.focus();
@@ -325,4 +361,188 @@ function showToast(msg, type) {
 // --- htmx event handling ---
 document.body.addEventListener("htmx:responseError", function() {
   showToast("Request failed", "error");
+});
+
+// --- Column customization (resize + reorder) ---
+// Persisted in localStorage. Widths keyed by col-* class, order is an array
+// of col-* classes excluding col-check (which stays pinned leftmost).
+
+const COL_WIDTHS_KEY = "aa.colWidths";
+const COL_ORDER_KEY = "aa.colOrder";
+let colWidths = {};
+let colOrder = null;
+
+function getColClass(el) {
+  for (const cls of el.classList) {
+    if (cls.startsWith("col-")) return cls;
+  }
+  return null;
+}
+
+function loadColState() {
+  try { colWidths = JSON.parse(localStorage.getItem(COL_WIDTHS_KEY) || "{}"); }
+  catch { colWidths = {}; }
+  try {
+    const raw = localStorage.getItem(COL_ORDER_KEY);
+    colOrder = raw ? JSON.parse(raw) : null;
+  } catch { colOrder = null; }
+}
+
+function saveColWidths() { localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(colWidths)); }
+function saveColOrder() { localStorage.setItem(COL_ORDER_KEY, JSON.stringify(colOrder)); }
+
+function applyColWidths() {
+  const style = document.getElementById("col-width-overrides");
+  if (!style) return;
+  const rules = Object.entries(colWidths).map(([cls, w]) =>
+    `.${cls} { width: ${w}px !important; min-width: ${w}px !important; max-width: ${w}px !important; }`
+  );
+  style.textContent = rules.join("\n");
+}
+
+function applyColOrderToRow(row) {
+  if (!colOrder) return;
+  const cells = Array.from(row.children);
+  // Skip rows whose structure doesn't match (detail rows, empty-state, etc.)
+  if (cells.length < 2) return;
+  if (cells.some(c => c.hasAttribute("colspan"))) return;
+  // Map only reorderable cells; the col-check cell stays pinned in place.
+  const byClass = new Map();
+  for (const c of cells) {
+    const cls = getColClass(c);
+    if (cls && cls !== "col-check") byClass.set(cls, c);
+  }
+  for (const cls of colOrder) {
+    if (!byClass.has(cls)) return;
+  }
+  for (const c of byClass.values()) row.removeChild(c);
+  for (const cls of colOrder) row.appendChild(byClass.get(cls));
+}
+
+function reorderRowIfNeeded(row) { applyColOrderToRow(row); }
+
+function applyColOrder() {
+  if (!colOrder) return;
+  const headRow = document.querySelector("#todo-table thead tr");
+  if (headRow) applyColOrderToRow(headRow);
+  document.querySelectorAll("#todo-tbody > tr").forEach(applyColOrderToRow);
+}
+
+function getDefaultOrder() {
+  return Array.from(document.querySelectorAll("#todo-table thead th"))
+    .map(getColClass)
+    .filter(cls => cls && cls !== "col-check");
+}
+
+// Resize
+let resizeState = null;
+function setupResize() {
+  document.querySelectorAll("#todo-table thead th").forEach(th => {
+    if (getColClass(th) === "col-check") return;
+    if (th.querySelector(".resize-handle")) return;
+    const h = document.createElement("div");
+    h.className = "resize-handle";
+    h.addEventListener("mousedown", e => startResize(e, th));
+    h.addEventListener("click", e => e.stopPropagation());
+    h.addEventListener("dblclick", e => {
+      e.stopPropagation();
+      const cls = getColClass(th);
+      if (cls) { delete colWidths[cls]; saveColWidths(); applyColWidths(); }
+    });
+    th.appendChild(h);
+  });
+}
+
+function startResize(e, th) {
+  e.preventDefault();
+  e.stopPropagation();
+  const cls = getColClass(th);
+  if (!cls) return;
+  resizeState = { cls, startX: e.clientX, startWidth: th.getBoundingClientRect().width };
+  document.body.classList.add("col-resizing");
+  document.addEventListener("mousemove", doResize);
+  document.addEventListener("mouseup", endResize, { once: true });
+}
+
+function doResize(e) {
+  if (!resizeState) return;
+  const w = Math.max(30, Math.round(resizeState.startWidth + (e.clientX - resizeState.startX)));
+  colWidths[resizeState.cls] = w;
+  applyColWidths();
+}
+
+function endResize() {
+  if (!resizeState) return;
+  saveColWidths();
+  resizeState = null;
+  document.body.classList.remove("col-resizing");
+  document.removeEventListener("mousemove", doResize);
+}
+
+// Reorder (HTML5 drag-and-drop)
+function setupReorder() {
+  document.querySelectorAll("#todo-table thead th").forEach(th => {
+    if (getColClass(th) === "col-check") return;
+    th.draggable = true;
+    th.addEventListener("dragstart", e => {
+      if (resizeState) { e.preventDefault(); return; }
+      const cls = getColClass(th);
+      if (!cls) return;
+      e.dataTransfer.setData("text/plain", cls);
+      e.dataTransfer.effectAllowed = "move";
+      th.classList.add("dragging");
+    });
+    th.addEventListener("dragend", () => th.classList.remove("dragging"));
+    th.addEventListener("dragover", e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      th.classList.add("drag-over");
+    });
+    th.addEventListener("dragleave", () => th.classList.remove("drag-over"));
+    th.addEventListener("drop", e => {
+      e.preventDefault();
+      th.classList.remove("drag-over");
+      const src = e.dataTransfer.getData("text/plain");
+      const dst = getColClass(th);
+      if (src && dst && src !== dst) moveColumn(src, dst);
+    });
+  });
+}
+
+function moveColumn(src, dst) {
+  const order = (colOrder ? [...colOrder] : getDefaultOrder());
+  const si = order.indexOf(src);
+  if (si < 0) return;
+  order.splice(si, 1);
+  const di = order.indexOf(dst);
+  if (di < 0) return;
+  order.splice(di, 0, src);
+  colOrder = order;
+  saveColOrder();
+  applyColOrder();
+}
+
+function resetColumns() {
+  localStorage.removeItem(COL_WIDTHS_KEY);
+  localStorage.removeItem(COL_ORDER_KEY);
+  colWidths = {};
+  colOrder = null;
+  document.getElementById("col-width-overrides").textContent = "";
+  location.reload();
+}
+
+function initColumns() {
+  loadColState();
+  applyColWidths();
+  setupResize();
+  setupReorder();
+  applyColOrder();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  initColumns();
+  updateSortIndicators();
+});
+document.body.addEventListener("htmx:afterSwap", e => {
+  if (e.target && e.target.id === "todo-tbody") applyColOrder();
 });

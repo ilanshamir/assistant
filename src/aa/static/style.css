@@ -58,6 +58,17 @@ header h1 { font-size: 16px; color: var(--accent); }
   font-family: inherit;
   font-size: 13px;
 }
+#reset-cols-btn {
+  padding: 4px 10px;
+  background: var(--bg);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+#reset-cols-btn:hover { color: var(--accent); border-color: var(--accent); }
 
 /* Main table area */
 main {
@@ -76,6 +87,7 @@ thead {
   z-index: 2;
 }
 th {
+  position: relative;
   text-align: left;
   padding: 6px 8px;
   border-bottom: 2px solid var(--border);
@@ -87,6 +99,28 @@ th {
 }
 th.sortable { cursor: pointer; }
 th.sortable:hover { color: var(--accent); }
+.sort-indicator {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: bold;
+  margin-left: 2px;
+}
+th.drag-over { box-shadow: inset 3px 0 0 var(--accent); }
+th.dragging { opacity: 0.5; }
+
+/* Column resize handle */
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  z-index: 3;
+}
+.resize-handle:hover { background: var(--accent); }
+body.col-resizing { cursor: col-resize; user-select: none; }
 
 /* Column widths */
 .col-check { width: 32px; text-align: center; }

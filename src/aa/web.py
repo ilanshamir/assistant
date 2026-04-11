@@ -82,7 +82,10 @@ async def get_todos(request: web.Request) -> web.Response:
     q = request.query.get("q", "").strip() or None
     sort = request.query.get("sort", "priority,due_date")
     dir_val = request.query.get("dir", "asc")
-    if dir_val == "desc":
+    # Per-column directions encoded as "-col" take precedence; only apply the
+    # global dir param when none of the parts already carry a sign.
+    has_signed = any(p.strip().startswith("-") for p in sort.split(","))
+    if dir_val == "desc" and not has_signed:
         sort = ",".join(f"-{col.strip()}" for col in sort.split(","))
 
     todos = await db.list_todos(

@@ -16,19 +16,21 @@
              hx-target="#todo-tbody" hx-include="[name='sort'],[name='dir']">
     </div>
     <button id="new-todo-btn" onclick="showNewTodoRow()">+ New</button>
+    <button id="reset-cols-btn" onclick="resetColumns()" title="Reset column widths and order">Reset cols</button>
   </header>
+  <style id="col-width-overrides"></style>
 
   <main>
     <table id="todo-table">
       <thead>
         <tr>
           <th class="col-check"><input type="checkbox" id="select-all" onclick="toggleSelectAll(this)"></th>
-          <th class="col-priority sortable" data-sort="priority" onclick="sortBy('priority')">P</th>
-          <th class="col-status sortable" data-sort="status" onclick="sortBy('status')">Status</th>
-          <th class="col-title sortable" data-sort="title" onclick="sortBy('title')">Title</th>
-          <th class="col-due sortable" data-sort="due_date" onclick="sortBy('due_date')">Due</th>
-          <th class="col-category sortable" data-sort="category" onclick="sortBy('category')">Category</th>
-          <th class="col-project sortable" data-sort="project" onclick="sortBy('project')">Project</th>
+          <th class="col-priority sortable" data-sort="priority" onclick="sortBy(event, 'priority')" title="Click to sort. Shift-click for secondary sort.">P</th>
+          <th class="col-status sortable" data-sort="status" onclick="sortBy(event, 'status')" title="Click to sort. Shift-click for secondary sort.">Status</th>
+          <th class="col-title sortable" data-sort="title" onclick="sortBy(event, 'title')" title="Click to sort. Shift-click for secondary sort.">Title</th>
+          <th class="col-due sortable" data-sort="due_date" onclick="sortBy(event, 'due_date')" title="Click to sort. Shift-click for secondary sort.">Due</th>
+          <th class="col-category sortable" data-sort="category" onclick="sortBy(event, 'category')" title="Click to sort. Shift-click for secondary sort.">Category</th>
+          <th class="col-project sortable" data-sort="project" onclick="sortBy(event, 'project')" title="Click to sort. Shift-click for secondary sort.">Project</th>
         </tr>
       </thead>
       <tbody id="todo-tbody"
