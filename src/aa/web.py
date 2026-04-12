@@ -54,6 +54,55 @@ def _todo_with_overdue(todo: dict) -> dict:
     return todo
 
 
+# --- Undo support ---
+# Single-level undo stored on the app instance. Each mutating handler captures
+# the pre-state of affected rows and replaces app["last_op"] on success. The
+# undo endpoint pops the snapshot and restores it. Creates are represented by
+# a snapshot with before=None, which the undo handler turns into a hard delete.
+
+_UNDO_FIELDS = (
+    "title", "priority", "status", "category", "project",
+    "due_date", "notes", "details", "completed_at", "reviewed",
+)
+
+
+async def _snapshot(db: Database, ids: list[str]) -> list[dict]:
+    snapshots: list[dict] = []
+    for tid in ids:
+        todo = await db.get_todo(tid)
+        if todo:
+            snapshots.append({
+                "id": tid,
+                "before": {k: todo.get(k) for k in _UNDO_FIELDS},
+            })
+    return snapshots
+
+
+def _set_last_op(request: web.Request, snapshots: list[dict]) -> None:
+    if snapshots:
+        request.app["last_op"][0] = snapshots
+
+
+def _get_last_op(request: web.Request) -> list[dict] | None:
+    return request.app["last_op"][0]
+
+
+def _clear_last_op(request: web.Request) -> None:
+    request.app["last_op"][0] = None
+
+
+def _view_to_filter(view: str) -> tuple[Any, bool]:
+    """Map the UI view param to (status_filter, include_deleted)."""
+    if view == "done":
+        return ("done", False)
+    if view == "deleted":
+        return ("deleted", True)
+    if view == "all":
+        return (None, True)
+    # default: active
+    return (["pending", "in_progress"], False)
+
+
 # --- Route handlers ---
 
 async def index(request: web.Request) -> web.Response:
@@ -82,14 +131,17 @@ async def get_todos(request: web.Request) -> web.Response:
     q = request.query.get("q", "").strip() or None
     sort = request.query.get("sort", "priority,due_date")
     dir_val = request.query.get("dir", "asc")
+    view = request.query.get("view", "active")
     # Per-column directions encoded as "-col" take precedence; only apply the
     # global dir param when none of the parts already carry a sign.
     has_signed = any(p.strip().startswith("-") for p in sort.split(","))
     if dir_val == "desc" and not has_signed:
         sort = ",".join(f"-{col.strip()}" for col in sort.split(","))
 
+    status_filter, include_deleted = _view_to_filter(view)
     todos = await db.list_todos(
-        status=["pending", "in_progress"], keyword=q, sort=sort
+        status=status_filter, keyword=q, sort=sort,
+        include_deleted=include_deleted,
     )
     todos = [_todo_with_overdue(t) for t in todos]
 
@@ -128,10 +180,11 @@ async def patch_todo(request: web.Request) -> web.Response:
         updates["details"] = data["details"] or None
     if "reviewed" in data:
         updates["reviewed"] = int(data["reviewed"])
-    if "status" in data and data["status"] in ("pending", "in_progress", "done"):
+    if "status" in data and data["status"] in ("pending", "in_progress", "done", "deleted"):
         updates["status"] = data["status"]
 
     if updates:
+        _set_last_op(request, await _snapshot(db, [full_id]))
         await db.update_todo(full_id, **updates)
 
     todo = await db.get_todo(full_id)
@@ -173,6 +226,7 @@ async def todo_done(request: web.Request) -> web.Response:
     full_id = await db.resolve_id("todos", todo_id)
     if not full_id:
         return web.Response(status=404, text="Not found")
+    _set_last_op(request, await _snapshot(db, [full_id]))
     await db.update_todo(full_id, status="done")
     response = web.Response(status=200, text="")
     response.headers["HX-Trigger"] = "refreshTable"
@@ -186,6 +240,7 @@ async def todo_delete(request: web.Request) -> web.Response:
     full_id = await db.resolve_id("todos", todo_id)
     if not full_id:
         return web.Response(status=404, text="Not found")
+    _set_last_op(request, await _snapshot(db, [full_id]))
     await db.delete_todo(full_id)
     response = web.Response(status=200, text="")
     response.headers["HX-Trigger"] = "refreshTable"
@@ -207,13 +262,32 @@ async def todo_new(request: web.Request) -> web.Response:
     except (ValueError, TypeError):
         priority = 3
 
-    await db.insert_todo(
+    new_id = await db.insert_todo(
         title=title,
         priority=priority,
         due_date=data.get("due_date") or None,
         category=data.get("category") or None,
         project=data.get("project") or None,
     )
+    # Record creation for undo. before=None means "hard-delete on undo".
+    _set_last_op(request, [{"id": new_id, "before": None}])
+    response = web.Response(status=200, text="")
+    response.headers["HX-Trigger"] = "refreshTable"
+    return response
+
+
+async def todo_undo(request: web.Request) -> web.Response:
+    """Revert the most recent mutation recorded in app['last_op']."""
+    db: Database = request.app["db"]
+    last = _get_last_op(request)
+    if not last:
+        return web.Response(status=200, text="nothing to undo")
+    for snap in last:
+        if snap.get("before") is None:
+            await db.hard_delete_todo(snap["id"])
+        else:
+            await db.update_todo(snap["id"], **snap["before"])
+    _clear_last_op(request)
     response = web.Response(status=200, text="")
     response.headers["HX-Trigger"] = "refreshTable"
     return response
@@ -231,14 +305,22 @@ async def todo_bulk(request: web.Request) -> web.Response:
     if not ids or not action:
         return web.Response(status=422, text="Missing ids or action")
 
+    # Resolve ids first so the snapshot matches the applied mutation set.
+    full_ids: list[str] = []
     for raw_id in ids:
         full_id = await db.resolve_id("todos", raw_id)
-        if not full_id:
-            continue
+        if full_id:
+            full_ids.append(full_id)
+
+    _set_last_op(request, await _snapshot(db, full_ids))
+
+    for full_id in full_ids:
         if action == "done":
             await db.update_todo(full_id, status="done")
         elif action == "delete":
             await db.delete_todo(full_id)
+        elif action == "restore":
+            await db.update_todo(full_id, status="pending")
         elif action == "priority" and value:
             await db.update_todo(full_id, priority=int(value))
         elif action == "due" and value:
@@ -421,6 +503,7 @@ def create_app(config: AppConfig, db: Database) -> web.Application:
     app = web.Application(middlewares=[csrf_middleware])
     app["config"] = config  # type: ignore[assignment]
     app["db"] = db  # type: ignore[assignment]
+    app["last_op"] = [None]  # single-slot mutable holder  # type: ignore[assignment]
 
     # Setup Jinja2 with autoescaping enabled
     aiohttp_jinja2.setup(
@@ -434,6 +517,7 @@ def create_app(config: AppConfig, db: Database) -> web.Application:
     app.router.add_get("/todos", get_todos)
     app.router.add_post("/todos/new", todo_new)
     app.router.add_post("/todos/bulk", todo_bulk)
+    app.router.add_post("/todos/undo", todo_undo)
     app.router.add_patch("/todos/{id}", patch_todo)
     app.router.add_get("/todos/{id}/detail", get_todo_detail)
     app.router.add_get("/todos/{id}/edit/{field}", get_edit_field)

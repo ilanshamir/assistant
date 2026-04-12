@@ -13,9 +13,16 @@
     <div class="search-bar">
       <input type="search" id="search" name="q" placeholder="Search todos..."
              hx-get="/todos" hx-trigger="input changed delay:300ms, search"
-             hx-target="#todo-tbody" hx-include="[name='sort'],[name='dir']">
+             hx-target="#todo-tbody" hx-include="[name='sort'],[name='dir'],[name='view']">
     </div>
+    <select id="view-field" name="view" onchange="htmx.trigger('#todo-tbody', 'refreshTable')" title="Which todos to show">
+      <option value="active">Active</option>
+      <option value="done">Done</option>
+      <option value="deleted">Deleted</option>
+      <option value="all">All</option>
+    </select>
     <button id="new-todo-btn" onclick="showNewTodoRow()">+ New</button>
+    <button id="undo-btn" onclick="undoLast()" title="Undo last change (Ctrl+Z)">Undo</button>
     <button id="reset-cols-btn" onclick="resetColumns()" title="Reset column widths and order">Reset cols</button>
   </header>
   <style id="col-width-overrides"></style>
@@ -35,7 +42,7 @@
       </thead>
       <tbody id="todo-tbody"
              hx-get="/todos" hx-trigger="load, refreshTable from:body"
-             hx-include="#search,[name='sort'],[name='dir']">
+             hx-include="#search,[name='sort'],[name='dir'],[name='view']">
       </tbody>
     </table>
     <input type="hidden" name="sort" id="sort-field" value="priority,due_date">
@@ -49,6 +56,7 @@
     <button onclick="bulkAction('in_progress')">In Progress</button>
     <button onclick="bulkAction('done')">Done</button>
     <button onclick="bulkAction('delete')">Delete</button>
+    <button onclick="bulkAction('restore')" title="Move selected items back to pending">Restore</button>
     <select id="bulk-priority" onchange="bulkAction('priority')">
       <option value="">Priority</option>
       <option value="1">P1</option>

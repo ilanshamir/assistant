@@ -363,6 +363,30 @@ document.body.addEventListener("htmx:responseError", function() {
   showToast("Request failed", "error");
 });
 
+// --- Undo ---
+function undoLast() {
+  fetch("/todos/undo", {
+    method: "POST",
+    headers: {"Origin": location.origin},
+  }).then(resp => {
+    if (resp.ok) {
+      htmx.trigger(document.body, "refreshTable");
+      showToast("Undone", "success");
+    } else {
+      showToast("Undo failed", "error");
+    }
+  });
+}
+
+document.addEventListener("keydown", function(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey && !e.altKey) {
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    e.preventDefault();
+    undoLast();
+  }
+});
+
 // --- Column customization (resize + reorder) ---
 // Persisted in localStorage. Widths keyed by col-* class, order is an array
 // of col-* classes excluding col-check (which stays pinned leftmost).

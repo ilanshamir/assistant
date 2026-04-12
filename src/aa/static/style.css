@@ -58,7 +58,7 @@ header h1 { font-size: 16px; color: var(--accent); }
   font-family: inherit;
   font-size: 13px;
 }
-#reset-cols-btn {
+#reset-cols-btn, #undo-btn {
   padding: 4px 10px;
   background: var(--bg);
   color: var(--text-dim);
@@ -68,7 +68,17 @@ header h1 { font-size: 16px; color: var(--accent); }
   font-family: inherit;
   font-size: 12px;
 }
-#reset-cols-btn:hover { color: var(--accent); border-color: var(--accent); }
+#reset-cols-btn:hover, #undo-btn:hover { color: var(--accent); border-color: var(--accent); }
+#view-field {
+  padding: 4px 8px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
 
 /* Main table area */
 main {

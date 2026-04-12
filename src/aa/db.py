@@ -338,6 +338,11 @@ class Database:
         )
         await self.db.commit()
 
+    async def hard_delete_todo(self, todo_id: str) -> None:
+        """Permanently remove a todo row. Used for undoing a creation."""
+        await self.db.execute("DELETE FROM todos WHERE id = ?", (todo_id,))
+        await self.db.commit()
+
     async def delete_todo(self, todo_id: str) -> None:
         await self.db.execute(
             "UPDATE todos SET status = 'deleted' WHERE id = ?", (todo_id,)

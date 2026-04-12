@@ -258,6 +258,158 @@ async def test_bulk_project(web_client, db):
 
 
 @pytest.mark.asyncio
+async def test_view_done_filter(web_client, db):
+    active = await db.insert_todo(title="Active one", priority=3)
+    done = await db.insert_todo(title="Done one", priority=3)
+    await db.update_todo(done, status="done")
+    resp = await web_client.get("/todos?view=done")
+    assert resp.status == 200
+    text = await resp.text()
+    assert "Done one" in text
+    assert "Active one" not in text
+
+
+@pytest.mark.asyncio
+async def test_view_deleted_filter(web_client, db):
+    alive = await db.insert_todo(title="Alive", priority=3)
+    dead = await db.insert_todo(title="Dead", priority=3)
+    await db.delete_todo(dead)
+    resp = await web_client.get("/todos?view=deleted")
+    assert resp.status == 200
+    text = await resp.text()
+    assert "Dead" in text
+    assert "Alive" not in text
+
+
+@pytest.mark.asyncio
+async def test_view_all_filter(web_client, db):
+    a = await db.insert_todo(title="AliveA", priority=3)
+    d = await db.insert_todo(title="DeadD", priority=3)
+    await db.delete_todo(d)
+    resp = await web_client.get("/todos?view=all")
+    assert resp.status == 200
+    text = await resp.text()
+    assert "AliveA" in text
+    assert "DeadD" in text
+
+
+@pytest.mark.asyncio
+async def test_restore_from_done_via_patch(web_client, db):
+    todo_id = await db.insert_todo(title="Resurrect me", priority=3)
+    await db.update_todo(todo_id, status="done")
+    resp = await web_client.patch(
+        f"/todos/{todo_id}",
+        data={"status": "pending"},
+        headers={"Origin": "http://localhost"},
+    )
+    assert resp.status == 200
+    assert (await db.get_todo(todo_id))["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_restore_from_deleted_via_patch(web_client, db):
+    todo_id = await db.insert_todo(title="Phoenix", priority=3)
+    await db.delete_todo(todo_id)
+    resp = await web_client.patch(
+        f"/todos/{todo_id}",
+        data={"status": "pending"},
+        headers={"Origin": "http://localhost"},
+    )
+    assert resp.status == 200
+    assert (await db.get_todo(todo_id))["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_bulk_restore(web_client, db):
+    a = await db.insert_todo(title="A", priority=3)
+    b = await db.insert_todo(title="B", priority=3)
+    await db.update_todo(a, status="done")
+    await db.delete_todo(b)
+    resp = await web_client.post(
+        "/todos/bulk",
+        data={"ids": f"{a},{b}", "action": "restore"},
+        headers={"Origin": "http://localhost"},
+    )
+    assert resp.status == 200
+    assert (await db.get_todo(a))["status"] == "pending"
+    assert (await db.get_todo(b))["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_undo_done(web_client, db):
+    todo_id = await db.insert_todo(title="Oops", priority=3)
+    await web_client.post(
+        f"/todos/{todo_id}/done",
+        headers={"Origin": "http://localhost"},
+    )
+    assert (await db.get_todo(todo_id))["status"] == "done"
+    resp = await web_client.post("/todos/undo", headers={"Origin": "http://localhost"})
+    assert resp.status == 200
+    assert (await db.get_todo(todo_id))["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_undo_delete(web_client, db):
+    todo_id = await db.insert_todo(title="Save me", priority=3)
+    await web_client.post(
+        f"/todos/{todo_id}/delete",
+        headers={"Origin": "http://localhost"},
+    )
+    assert (await db.get_todo(todo_id))["status"] == "deleted"
+    resp = await web_client.post("/todos/undo", headers={"Origin": "http://localhost"})
+    assert resp.status == 200
+    assert (await db.get_todo(todo_id))["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_undo_create(web_client, db):
+    resp = await web_client.post(
+        "/todos/new",
+        data={"title": "Ephemeral", "priority": "3"},
+        headers={"Origin": "http://localhost"},
+    )
+    assert resp.status == 200
+    todos = await db.list_todos()
+    assert len(todos) == 1
+    new_id = todos[0]["id"]
+    await web_client.post("/todos/undo", headers={"Origin": "http://localhost"})
+    # Hard delete — the row should be gone entirely
+    assert await db.get_todo(new_id) is None
+    all_rows = await db.list_todos(include_deleted=True)
+    assert len(all_rows) == 0
+
+
+@pytest.mark.asyncio
+async def test_undo_bulk_priority(web_client, db):
+    id1 = await db.insert_todo(title="A", priority=3)
+    id2 = await db.insert_todo(title="B", priority=4)
+    await web_client.post(
+        "/todos/bulk",
+        data={"ids": f"{id1},{id2}", "action": "priority", "value": "1"},
+        headers={"Origin": "http://localhost"},
+    )
+    assert (await db.get_todo(id1))["priority"] == 1
+    assert (await db.get_todo(id2))["priority"] == 1
+    await web_client.post("/todos/undo", headers={"Origin": "http://localhost"})
+    assert (await db.get_todo(id1))["priority"] == 3
+    assert (await db.get_todo(id2))["priority"] == 4
+
+
+@pytest.mark.asyncio
+async def test_undo_twice_is_noop(web_client, db):
+    todo_id = await db.insert_todo(title="Oops", priority=3)
+    await web_client.post(
+        f"/todos/{todo_id}/done",
+        headers={"Origin": "http://localhost"},
+    )
+    await web_client.post("/todos/undo", headers={"Origin": "http://localhost"})
+    # Second undo: nothing to undo
+    resp = await web_client.post("/todos/undo", headers={"Origin": "http://localhost"})
+    assert resp.status == 200
+    assert (await db.get_todo(todo_id))["status"] == "pending"
+
+
+@pytest.mark.asyncio
 async def test_index_datalists_populated(web_client, db):
     await db.insert_todo(title="A", priority=3, category="work", project="Q3")
     await db.insert_todo(title="B", priority=3, category="home", project="garden")

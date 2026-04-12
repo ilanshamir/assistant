@@ -48,6 +48,26 @@
                 hx-target="closest tr" hx-swap="delete">
           Done
         </button>
+        {% elif todo.status == 'done' %}
+        <button class="btn-progress"
+                hx-patch="/todos/{{ todo.id }}" hx-vals='{"status": "pending"}'
+                hx-target="closest tr" hx-swap="delete"
+                onclick="htmx.trigger(document.body, 'refreshTable')">
+          Restore to pending
+        </button>
+        <button class="btn-progress"
+                hx-patch="/todos/{{ todo.id }}" hx-vals='{"status": "in_progress"}'
+                hx-target="closest tr" hx-swap="delete"
+                onclick="htmx.trigger(document.body, 'refreshTable')">
+          Restore to in progress
+        </button>
+        {% elif todo.status == 'deleted' %}
+        <button class="btn-progress"
+                hx-patch="/todos/{{ todo.id }}" hx-vals='{"status": "pending"}'
+                hx-target="closest tr" hx-swap="delete"
+                onclick="htmx.trigger(document.body, 'refreshTable')">
+          Restore to pending
+        </button>
         {% endif %}
       </div>
       <div class="detail-row detail-meta">
