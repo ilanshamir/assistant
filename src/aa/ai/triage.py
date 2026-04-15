@@ -19,10 +19,22 @@ For EACH item, return a JSON object with these fields:
 - "action": one of "reply", "schedule", "delegate", "fyi", or "ignore"
 - "create_todo": boolean — whether new to-do(s) should be created
 - "todo_title": string or null — title for the to-do if create_todo is true (single todo)
+- "todo_category": string or null — category to assign (see CATEGORY/PROJECT RULES)
+- "todo_project": string or null — project to assign (see CATEGORY/PROJECT RULES)
 - "todos": list or null — for items containing multiple action items (e.g. meeting notes), \
-a list of {"title": string, "priority": int} objects. Each becomes a separate to-do. \
-Use this instead of todo_title when the item contains multiple distinct tasks.
+a list of {"title": string, "priority": int, "category": string|null, "project": string|null} \
+objects. Each becomes a separate to-do. Use this instead of todo_title when the item contains \
+multiple distinct tasks.
 - "draft": string or null — a draft reply if the action is "reply"
+
+CATEGORY/PROJECT RULES:
+The user message may include "Existing Categories" and "Existing Projects" sections \
+listing values already in use. When present, you MUST strongly prefer picking from \
+those lists so the user's taxonomy stays consistent. Match on meaning, not exact \
+string — an item about "the Q3 launch" fits an existing "Q3 launch" project even if \
+the wording differs. Only invent a new value when NO existing one reasonably fits. \
+If both lists are absent or empty, set category to "work" or "private" as appropriate \
+and leave project null unless one is obvious from context.
 
 IMPORTANT: When an item is a notes or document type (e.g. meeting notes, a to-do list file), \
 carefully extract ALL individual action items and return them in the "todos" list. \
@@ -109,6 +121,17 @@ class TriageEngine:
             sections.append(
                 "## Removed/Completed Todos (DO NOT re-create these)\n" + "\n".join(dismissed_lines)
             )
+
+        # Existing taxonomy — categories and projects already in use.
+        existing_categories = context.get("existing_categories", [])
+        existing_projects = context.get("existing_projects", [])
+        if existing_categories or existing_projects:
+            parts = ["Use these existing values when they fit (strongly preferred):"]
+            if existing_categories:
+                parts.append("Categories: " + ", ".join(existing_categories))
+            if existing_projects:
+                parts.append("Projects: " + ", ".join(existing_projects))
+            sections.append("## Existing Categories & Projects\n" + "\n".join(parts))
 
         # Items to triage
         sections.append(f"## Items to Triage\n```json\n{json.dumps(items, indent=2)}\n```")

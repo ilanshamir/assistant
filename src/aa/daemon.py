@@ -306,6 +306,8 @@ class Daemon:
 
         all_todos = await self._db.list_todos(include_deleted=True)
         existing_titles = [t["title"].lower().strip() for t in all_todos]
+        existing_categories = sorted({t["category"] for t in all_todos if t.get("category")})
+        existing_projects = sorted({t["project"] for t in all_todos if t.get("project")})
 
         def _is_duplicate(title: str) -> bool:
             """Check if title is a fuzzy match against any existing todo."""
@@ -325,7 +327,11 @@ class Daemon:
                 continue
 
             try:
-                extracted = await extractor.extract_todos(body)
+                extracted = await extractor.extract_todos(
+                    body,
+                    existing_categories=existing_categories,
+                    existing_projects=existing_projects,
+                )
             except Exception:
                 logger.exception("Notes extraction failed for %s", item_id)
                 await self._db.update_item_triage(item_id, 3, "fyi")
@@ -387,11 +393,16 @@ class Daemon:
             "calendar_today": calendar_items,
         }
 
-        # Collect all existing todo titles for fuzzy dedup
+        # Collect all existing todo titles for fuzzy dedup, and existing
+        # categories/projects so triage can reuse the user's taxonomy.
         from difflib import SequenceMatcher
 
         all_todos = await self._db.list_todos(include_deleted=True)
         existing_titles = [t["title"].lower().strip() for t in all_todos]
+        existing_categories = sorted({t["category"] for t in all_todos if t.get("category")})
+        existing_projects = sorted({t["project"] for t in all_todos if t.get("project")})
+        context["existing_categories"] = existing_categories
+        context["existing_projects"] = existing_projects
 
         def _is_duplicate(title: str) -> bool:
             t = title.lower().strip()
@@ -422,7 +433,12 @@ class Daemon:
             # Create todo(s) if suggested, skipping duplicates
             todos_list = result.get("todos") or []
             if not todos_list and result.get("create_todo") and result.get("todo_title"):
-                todos_list = [{"title": result["todo_title"], "priority": priority}]
+                todos_list = [{
+                    "title": result["todo_title"],
+                    "priority": priority,
+                    "category": result.get("todo_category"),
+                    "project": result.get("todo_project"),
+                }]
             for todo_spec in todos_list:
                 todo_title = todo_spec.get("title")
                 if not todo_title:
@@ -430,7 +446,13 @@ class Daemon:
                 if _is_duplicate(todo_title):
                     continue
                 todo_prio = todo_spec.get("priority", priority)
-                todo_id = await self._db.insert_todo(title=todo_title, priority=todo_prio, reviewed=False)
+                todo_id = await self._db.insert_todo(
+                    title=todo_title,
+                    priority=todo_prio,
+                    category=todo_spec.get("category"),
+                    project=todo_spec.get("project"),
+                    reviewed=False,
+                )
                 await self._db.link_todo(todo_id, item_id)
                 existing_titles.append(todo_title.lower().strip())
 

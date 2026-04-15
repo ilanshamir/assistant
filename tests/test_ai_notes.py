@@ -25,6 +25,31 @@ class TestBuildPrompt:
         assert "send report" in prompt
         assert "Follow up on Q3" in prompt
 
+    def test_omits_existing_block_when_lists_empty(self, extractor):
+        prompt = extractor._build_prompt("TODO: x", today="2026-03-09")
+        assert "Existing categories" not in prompt
+        assert "Existing projects" not in prompt
+
+    def test_includes_existing_categories_and_projects(self, extractor):
+        prompt = extractor._build_prompt(
+            "TODO: x",
+            today="2026-03-09",
+            existing_categories=["work", "private"],
+            existing_projects=["Q3 launch", "garden"],
+        )
+        assert "Existing categories: work, private" in prompt
+        assert "Existing projects: Q3 launch, garden" in prompt
+
+    def test_includes_only_categories_when_projects_empty(self, extractor):
+        prompt = extractor._build_prompt(
+            "TODO: x",
+            today="2026-03-09",
+            existing_categories=["work"],
+            existing_projects=[],
+        )
+        assert "Existing categories: work" in prompt
+        assert "Existing projects" not in prompt
+
 
 class TestParseResponse:
     def test_parses_json_array(self):

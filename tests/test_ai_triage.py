@@ -83,6 +83,18 @@ class TestBuildTriagePrompt:
         # Should still include items even with empty context
         assert "Q1 Strategy" in prompt
 
+    def test_includes_existing_categories_and_projects(self, engine, sample_items, sample_context):
+        ctx = dict(sample_context)
+        ctx["existing_categories"] = ["work", "private"]
+        ctx["existing_projects"] = ["Q3 launch", "garden"]
+        prompt = engine._build_triage_prompt(sample_items, ctx)
+        assert "Categories: work, private" in prompt
+        assert "Projects: Q3 launch, garden" in prompt
+
+    def test_omits_existing_section_when_lists_empty(self, engine, sample_items, sample_context):
+        prompt = engine._build_triage_prompt(sample_items, sample_context)
+        assert "Existing Categories & Projects" not in prompt
+
 
 class TestParseTriageResponse:
     """Tests for _parse_triage_response."""
@@ -151,3 +163,38 @@ class TestParseTriageResponse:
     def test_raises_on_invalid_json(self, engine):
         with pytest.raises(ValueError, match="parse"):
             engine._parse_triage_response("This is not JSON at all")
+
+    def test_parses_todo_category_and_project(self, engine):
+        response_text = json.dumps([{
+            "id": "msg-3",
+            "priority": 2,
+            "summary": "Follow up on Q3 launch item",
+            "action": "fyi",
+            "create_todo": True,
+            "todo_title": "Ping Bob about Q3 launch status",
+            "todo_category": "work",
+            "todo_project": "Q3 launch",
+            "draft": None,
+        }])
+        result = engine._parse_triage_response(response_text)
+        assert result[0]["todo_category"] == "work"
+        assert result[0]["todo_project"] == "Q3 launch"
+
+    def test_parses_todos_list_with_category_and_project(self, engine):
+        response_text = json.dumps([{
+            "id": "msg-4",
+            "priority": 3,
+            "summary": "Meeting notes with multiple actions",
+            "action": "fyi",
+            "create_todo": True,
+            "todos": [
+                {"title": "Draft agenda", "priority": 2, "category": "work", "project": "Q3 launch"},
+                {"title": "Book room", "priority": 4, "category": "work", "project": None},
+            ],
+            "draft": None,
+        }])
+        result = engine._parse_triage_response(response_text)
+        todos = result[0]["todos"]
+        assert todos[0]["category"] == "work"
+        assert todos[0]["project"] == "Q3 launch"
+        assert todos[1]["project"] is None
